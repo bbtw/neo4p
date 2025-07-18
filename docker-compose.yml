@@ -15,17 +15,17 @@ services:
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=your_password
 
-  dash:
-    build:
-      context: .
-      dockerfile: Dockerfile.dash
-    container_name: dash
-    ports:
-      - "8050:8050"
-    networks:
-      - webnet
-    environment:
-      - API_BASE=http://fastapi:8000/api
+  #dash:
+   # build:
+    #  context: .
+     # dockerfile: Dockerfile.dash
+    #container_name: dash
+    #ports:
+     # - "8050:8050"
+    #networks:
+     # - webnet
+    #environment:
+     # - API_BASE=http://fastapi:8000/api
 
   nginx:
     image: nginx:alpine
@@ -35,7 +35,6 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       - fastapi
-      - dash
     networks:
       - webnet
 
@@ -59,6 +58,17 @@ services:
         - neo4j
       networks:
         - webnet
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.react
+    ports:
+      - "3000:80"
+    depends_on:
+      - fastapi
+    environment:
+      - VITE_API_BASE=http://fastapi:8000/api
 
 networks:
   webnet:
