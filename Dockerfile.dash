@@ -1,0 +1,11 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY dash_app.py requirements.txt ./
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+ENV API_BASE=http://fastapi:8000/api
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8050", "dash_app:app"]

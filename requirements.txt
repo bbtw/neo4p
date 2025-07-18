@@ -1,0 +1,8 @@
+dash
+dash-bootstrap-components
+dash-cytoscape
+gunicorn
+uvicorn
+fastapi
+requests
+neo4j
