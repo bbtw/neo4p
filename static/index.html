@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Financial Planning Graph</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <header class="sidebar-header">
+          <h1>Planning Graph</h1>
+          <input id="search" type="search" placeholder="Search nodes">
+        </header>
+        <nav id="hierarchy" class="hierarchy" aria-label="Planning hierarchy"></nav>
+      </aside>
+
+      <main class="workspace">
+        <section class="toolbar" aria-label="Graph summary">
+          <div>
+            <span class="metric" id="need-count">0</span>
+            <span class="metric-label">Needs</span>
+          </div>
+          <div>
+            <span class="metric" id="subneed-count">0</span>
+            <span class="metric-label">Subneeds</span>
+          </div>
+          <div>
+            <span class="metric" id="task-count">0</span>
+            <span class="metric-label">Tasks</span>
+          </div>
+        </section>
+
+        <section class="graph-shell">
+          <svg id="graph" role="img" aria-label="Financial planning graph"></svg>
+        </section>
+      </main>
+
+      <aside class="detail">
+        <h2 id="detail-title">Select a node</h2>
+        <p id="detail-type" class="pill">No selection</p>
+        <p id="detail-description">Choose a need, subneed, or task to review its relationships.</p>
+        <div class="detail-section">
+          <h3>Parents</h3>
+          <ul id="parents"></ul>
+        </div>
+        <div class="detail-section">
+          <h3>Children</h3>
+          <ul id="children"></ul>
+        </div>
+      </aside>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

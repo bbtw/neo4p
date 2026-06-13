@@ -1,0 +1,18 @@
+[project]
+name = "kg-viewer"
+version = "0.1.0"
+description = "Read-only viewer for a financial planning task graph backed by Neo4j."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+kg-import-graph = "kg_viewer.import_graph:main"
+kg-viewer = "kg_viewer.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true

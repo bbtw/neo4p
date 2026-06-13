@@ -1,0 +1,535 @@
+{
+  "needs": [
+    {
+      "id": "cash_flow",
+      "name": "Cash Flow",
+      "description": "Understand income, spending, reserves, and debt obligations.",
+      "subneeds": [
+        {
+          "id": "budget_and_spending",
+          "name": "Budget And Spending",
+          "description": "Review household income, expenses, and ongoing commitments.",
+          "tasks": [
+            {
+              "id": "analyze_income_and_expense_patterns",
+              "name": "Analyze income and expense patterns"
+            },
+            {
+              "id": "identify_discretionary_spending_capacity",
+              "name": "Identify discretionary spending capacity"
+            },
+            {
+              "id": "assess_debt_payment_obligations",
+              "name": "Assess debt payment obligations"
+            },
+            {
+              "id": "review_recurring_financial_commitments",
+              "name": "Review recurring financial commitments"
+            }
+          ]
+        },
+        {
+          "id": "emergency_reserve",
+          "name": "Emergency Reserve",
+          "description": "Evaluate liquidity available for unexpected expenses.",
+          "tasks": [
+            {
+              "id": "assess_emergency_reserve_adequacy",
+              "name": "Assess emergency reserve adequacy"
+            },
+            {
+              "id": "determine_target_reserve_range",
+              "name": "Determine target reserve range"
+            },
+            {
+              "id": "recommend_reserve_funding_strategy",
+              "name": "Recommend reserve funding strategy"
+            }
+          ]
+        },
+        {
+          "id": "debt_management",
+          "name": "Debt Management",
+          "description": "Review liabilities and repayment options.",
+          "tasks": [
+            {
+              "id": "inventory_outstanding_debts",
+              "name": "Inventory outstanding debts"
+            },
+            {
+              "id": "prioritize_debt_repayment_strategy",
+              "name": "Prioritize debt repayment strategy"
+            },
+            {
+              "id": "evaluate_refinancing_opportunities",
+              "name": "Evaluate refinancing opportunities"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "savings",
+      "name": "Savings",
+      "description": "Plan savings for future goals and large expenses.",
+      "subneeds": [
+        {
+          "id": "retirement_savings",
+          "name": "Retirement Savings",
+          "description": "Evaluate retirement savings progress and strategy.",
+          "tasks": [
+            {
+              "id": "estimate_retirement_income_gap",
+              "name": "Estimate retirement income gap"
+            },
+            {
+              "id": "review_current_retirement_contribution_rates",
+              "name": "Review current retirement contribution rates"
+            },
+            {
+              "id": "evaluate_account_type_mix",
+              "name": "Evaluate account type mix"
+            },
+            {
+              "id": "recommend_retirement_savings_strategy",
+              "name": "Recommend retirement savings strategy"
+            }
+          ]
+        },
+        {
+          "id": "education_savings",
+          "name": "Education Savings",
+          "description": "Plan savings for future education expenses.",
+          "tasks": [
+            {
+              "id": "estimate_college_funding_gap",
+              "name": "Estimate college funding gap"
+            },
+            {
+              "id": "review_education_savings_account_options",
+              "name": "Review education savings account options"
+            },
+            {
+              "id": "recommend_education_funding_strategy",
+              "name": "Recommend education funding strategy"
+            }
+          ]
+        },
+        {
+          "id": "major_purchase_savings",
+          "name": "Major Purchase Savings",
+          "description": "Plan savings for major future purchases.",
+          "tasks": [
+            {
+              "id": "define_major_purchase_funding_target",
+              "name": "Define major purchase funding target"
+            },
+            {
+              "id": "assess_savings_timeline_feasibility",
+              "name": "Assess savings timeline feasibility"
+            },
+            {
+              "id": "recommend_major_purchase_savings_strategy",
+              "name": "Recommend major purchase savings strategy"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "protection",
+      "name": "Protection",
+      "description": "Protect household income, assets, and survivors.",
+      "subneeds": [
+        {
+          "id": "life_insurance",
+          "name": "Life Insurance",
+          "description": "Review life insurance coverage and structure.",
+          "tasks": [
+            {
+              "id": "inventory_existing_life_insurance_coverage",
+              "name": "Inventory existing life insurance coverage"
+            },
+            {
+              "id": "evaluate_life_insurance_coverage_gap",
+              "name": "Evaluate life insurance coverage gap"
+            },
+            {
+              "id": "review_policy_ownership_and_beneficiaries",
+              "name": "Review policy ownership and beneficiaries"
+            },
+            {
+              "id": "recommend_life_insurance_strategy",
+              "name": "Recommend life insurance strategy"
+            }
+          ]
+        },
+        {
+          "id": "disability_insurance",
+          "name": "Disability Insurance",
+          "description": "Review protection against loss of earned income.",
+          "tasks": [
+            {
+              "id": "inventory_existing_disability_coverage",
+              "name": "Inventory existing disability coverage"
+            },
+            {
+              "id": "evaluate_disability_income_protection_gap",
+              "name": "Evaluate disability income protection gap"
+            },
+            {
+              "id": "review_employer_disability_benefits",
+              "name": "Review employer disability benefits"
+            },
+            {
+              "id": "recommend_disability_insurance_strategy",
+              "name": "Recommend disability insurance strategy"
+            }
+          ]
+        },
+        {
+          "id": "property_and_casualty_insurance",
+          "name": "Property And Casualty Insurance",
+          "description": "Review property, casualty, and liability protection.",
+          "tasks": [
+            {
+              "id": "inventory_property_and_casualty_policies",
+              "name": "Inventory property and casualty policies"
+            },
+            {
+              "id": "identify_liability_coverage_gaps",
+              "name": "Identify liability coverage gaps"
+            },
+            {
+              "id": "review_umbrella_liability_coverage_need",
+              "name": "Review umbrella liability coverage need"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "investments",
+      "name": "Investments",
+      "description": "Align portfolio design with goals, risk, tax profile, and liquidity needs.",
+      "subneeds": [
+        {
+          "id": "asset_allocation",
+          "name": "Asset Allocation",
+          "description": "Review portfolio allocation and risk exposure.",
+          "tasks": [
+            {
+              "id": "review_current_asset_allocation",
+              "name": "Review current asset allocation"
+            },
+            {
+              "id": "assess_risk_tolerance_and_capacity",
+              "name": "Assess risk tolerance and capacity"
+            },
+            {
+              "id": "identify_concentration_risk",
+              "name": "Identify concentration risk"
+            },
+            {
+              "id": "recommend_target_allocation",
+              "name": "Recommend target allocation"
+            }
+          ]
+        },
+        {
+          "id": "account_location",
+          "name": "Account Location",
+          "description": "Review asset placement across account types.",
+          "tasks": [
+            {
+              "id": "review_taxable_and_tax_advantaged_account_placement",
+              "name": "Review taxable and tax-advantaged account placement"
+            },
+            {
+              "id": "identify_tax_inefficient_holdings",
+              "name": "Identify tax-inefficient holdings"
+            },
+            {
+              "id": "recommend_account_location_adjustments",
+              "name": "Recommend account location adjustments"
+            }
+          ]
+        },
+        {
+          "id": "investment_policy",
+          "name": "Investment Policy",
+          "description": "Document investment objectives and operating rules.",
+          "tasks": [
+            {
+              "id": "document_investment_objectives",
+              "name": "Document investment objectives"
+            },
+            {
+              "id": "review_rebalancing_approach",
+              "name": "Review rebalancing approach"
+            },
+            {
+              "id": "confirm_liquidity_needs",
+              "name": "Confirm liquidity needs"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "retirement",
+      "name": "Retirement",
+      "description": "Evaluate retirement readiness, income sources, and distribution strategy.",
+      "subneeds": [
+        {
+          "id": "retirement_readiness",
+          "name": "Retirement Readiness",
+          "description": "Assess progress toward retirement goals.",
+          "tasks": [
+            {
+              "id": "assess_retirement_readiness",
+              "name": "Assess retirement readiness"
+            },
+            {
+              "id": "estimate_retirement_spending_need",
+              "name": "Estimate retirement spending need"
+            },
+            {
+              "id": "model_retirement_income_sources",
+              "name": "Model retirement income sources"
+            },
+            {
+              "id": "identify_retirement_plan_shortfall",
+              "name": "Identify retirement plan shortfall"
+            }
+          ]
+        },
+        {
+          "id": "social_security_and_pensions",
+          "name": "Social Security And Pensions",
+          "description": "Review guaranteed retirement income sources.",
+          "tasks": [
+            {
+              "id": "review_social_security_claiming_options",
+              "name": "Review Social Security claiming options"
+            },
+            {
+              "id": "inventory_pension_benefits",
+              "name": "Inventory pension benefits"
+            },
+            {
+              "id": "evaluate_guaranteed_income_strategy",
+              "name": "Evaluate guaranteed income strategy"
+            }
+          ]
+        },
+        {
+          "id": "retirement_distribution",
+          "name": "Retirement Distribution",
+          "description": "Plan retirement withdrawals and required distributions.",
+          "tasks": [
+            {
+              "id": "estimate_sustainable_withdrawal_range",
+              "name": "Estimate sustainable withdrawal range"
+            },
+            {
+              "id": "review_retirement_account_distribution_order",
+              "name": "Review retirement account distribution order"
+            },
+            {
+              "id": "evaluate_required_minimum_distribution_impact",
+              "name": "Evaluate required minimum distribution impact"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tax",
+      "name": "Tax",
+      "description": "Identify tax planning opportunities and constraints.",
+      "tasks": [
+        {
+          "id": "review_current_tax_profile",
+          "name": "Review current tax profile"
+        }
+      ],
+      "subneeds": [
+        {
+          "id": "income_tax_planning",
+          "name": "Income Tax Planning",
+          "description": "Review current income tax position and near-term actions.",
+          "tasks": [
+            {
+              "id": "identify_marginal_tax_bracket_issues",
+              "name": "Identify marginal tax bracket issues"
+            },
+            {
+              "id": "evaluate_tax_loss_harvesting_opportunities",
+              "name": "Evaluate tax-loss harvesting opportunities"
+            },
+            {
+              "id": "recommend_income_tax_planning_actions",
+              "name": "Recommend income tax planning actions"
+            }
+          ]
+        },
+        {
+          "id": "retirement_tax_strategy",
+          "name": "Retirement Tax Strategy",
+          "description": "Review tax treatment of retirement savings and income.",
+          "tasks": [
+            {
+              "id": "evaluate_roth_conversion_opportunity",
+              "name": "Evaluate Roth conversion opportunity"
+            },
+            {
+              "id": "review_pre_tax_and_roth_contribution_mix",
+              "name": "Review pre-tax and Roth contribution mix"
+            },
+            {
+              "id": "model_retirement_tax_diversification",
+              "name": "Model retirement tax diversification"
+            }
+          ]
+        },
+        {
+          "id": "charitable_giving",
+          "name": "Charitable Giving",
+          "description": "Review charitable goals and giving strategy.",
+          "tasks": [
+            {
+              "id": "review_charitable_giving_goals",
+              "name": "Review charitable giving goals"
+            },
+            {
+              "id": "evaluate_donor_advised_fund_fit",
+              "name": "Evaluate donor-advised fund fit"
+            },
+            {
+              "id": "recommend_charitable_giving_strategy",
+              "name": "Recommend charitable giving strategy"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "estate",
+      "name": "Estate",
+      "description": "Review estate documents, wealth transfer, and incapacity planning.",
+      "subneeds": [
+        {
+          "id": "estate_planning",
+          "name": "Estate Planning",
+          "description": "Review core estate documents and appointments.",
+          "tasks": [
+            {
+              "id": "review_estate_planning_documents",
+              "name": "Review estate planning documents"
+            },
+            {
+              "id": "identify_missing_estate_documents",
+              "name": "Identify missing estate documents"
+            },
+            {
+              "id": "review_beneficiary_designations",
+              "name": "Review beneficiary designations"
+            },
+            {
+              "id": "confirm_fiduciary_appointments",
+              "name": "Confirm fiduciary appointments"
+            }
+          ]
+        },
+        {
+          "id": "wealth_transfer",
+          "name": "Wealth Transfer",
+          "description": "Review lifetime and legacy transfer goals.",
+          "tasks": [
+            {
+              "id": "identify_wealth_transfer_goals",
+              "name": "Identify wealth transfer goals"
+            },
+            {
+              "id": "review_gifting_strategy",
+              "name": "Review gifting strategy"
+            },
+            {
+              "id": "evaluate_trust_planning_needs",
+              "name": "Evaluate trust planning needs"
+            }
+          ]
+        },
+        {
+          "id": "incapacity_planning",
+          "name": "Incapacity Planning",
+          "description": "Review authority and information access during incapacity.",
+          "tasks": [
+            {
+              "id": "review_powers_of_attorney",
+              "name": "Review powers of attorney"
+            },
+            {
+              "id": "review_health_care_directives",
+              "name": "Review health care directives"
+            },
+            {
+              "id": "confirm_access_to_key_financial_information",
+              "name": "Confirm access to key financial information"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "education",
+      "name": "Education",
+      "description": "Plan education costs, savings, financial aid assumptions, and student loans.",
+      "subneeds": [
+        {
+          "id": "college_funding",
+          "name": "College Funding",
+          "description": "Review expected education costs and funding sources.",
+          "tasks": [
+            {
+              "id": "estimate_expected_education_costs",
+              "name": "Estimate expected education costs"
+            },
+            {
+              "id": "review_available_education_savings",
+              "name": "Review available education savings"
+            },
+            {
+              "id": "evaluate_financial_aid_assumptions",
+              "name": "Evaluate financial aid assumptions"
+            },
+            {
+              "id": "recommend_college_funding_strategy",
+              "name": "Recommend college funding strategy"
+            }
+          ]
+        },
+        {
+          "id": "student_loan_planning",
+          "name": "Student Loan Planning",
+          "description": "Review student loan inventory and repayment options.",
+          "tasks": [
+            {
+              "id": "inventory_student_loans",
+              "name": "Inventory student loans"
+            },
+            {
+              "id": "review_repayment_plan_options",
+              "name": "Review repayment plan options"
+            },
+            {
+              "id": "evaluate_refinancing_fit",
+              "name": "Evaluate refinancing fit"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
