@@ -550,9 +550,38 @@ function renderDetailList(selector, items) {
 }
 
 function toggleExpand(id) {
+  // FLIP: capture old positions
+  const oldLayout = new Map();
+  for (const card of treeCanvas.querySelectorAll(".tree-card")) {
+    oldLayout.set(card.dataset.instanceKey, {
+      x: parseFloat(card.style.left),
+      y: parseFloat(card.style.top),
+    });
+  }
+
+  // Toggle and rebuild
   if (state.expanded.has(id)) state.expanded.delete(id);
   else state.expanded.add(id);
   renderTree();
+
+  // FLIP: invert (apply transform to old positions) and then play (animate back)
+  for (const card of treeCanvas.querySelectorAll(".tree-card")) {
+    const oldPos = oldLayout.get(card.dataset.instanceKey);
+    if (oldPos) {
+      const newX = parseFloat(card.style.left);
+      const newY = parseFloat(card.style.top);
+      card.style.transform = `translate(${oldPos.x - newX}px, ${oldPos.y - newY}px)`;
+    } else {
+      card.style.opacity = '0';
+    }
+  }
+
+  // Force reflow, then animate to final state
+  void treeCanvas.offsetHeight;
+  for (const card of treeCanvas.querySelectorAll(".tree-card")) {
+    card.style.transform = '';
+    card.style.opacity = '';
+  }
 }
 
 // ── Shared-node "other parents" popover ─────────────────────────────────────────
