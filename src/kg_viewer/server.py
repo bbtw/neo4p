@@ -14,8 +14,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
+from kg_viewer.config import ROOT, load_local_env
 
-ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = ROOT / "static"
 
 
@@ -222,6 +222,7 @@ class ViewerHandler(SimpleHTTPRequestHandler):
 
 
 def parse_args() -> argparse.Namespace:
+    load_local_env()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default=os.environ.get("KG_VIEWER_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("KG_VIEWER_PORT", "8000")))

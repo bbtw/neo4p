@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Read-only viewer for a financial planning task graph backed by Neo4j."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "python-dotenv>=1.2.2",
+]
 
 [project.scripts]
 kg-import-graph = "kg_viewer.import_graph:main"

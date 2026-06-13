@@ -11,8 +11,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from kg_viewer.config import ROOT, load_local_env
 
-ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SEED = ROOT / "data" / "financial-planning-graph.json"
 
 
@@ -213,6 +213,7 @@ def import_graph(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    load_local_env()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=Path, default=DEFAULT_SEED)
     parser.add_argument("--uri", default=os.environ.get("NEO4J_URI", "http://localhost:7474"))

@@ -26,11 +26,10 @@ Imported nodes also receive the shared `FinancialPlanningGraph` label so the imp
 Set credentials for your local Neo4j instance:
 
 ```sh
-export NEO4J_URI="http://localhost:7474"
-export NEO4J_DATABASE="neo4j"
-export NEO4J_USER="neo4j"
-export NEO4J_PASSWORD="your-password"
+cp .env.example .env
 ```
+
+Then edit `.env` with your local Neo4j password.
 
 Preview the seed import:
 
