@@ -62,9 +62,9 @@ async function loadJson() {
     state.selectedId = null;
     state.expanded = new Set();
     await loadGraph();
-    setStatus(`Loaded ${result.nodes} nodes and ${result.relationships} relationships.`);
+    showToast(`Loaded ${result.nodes} nodes and ${result.relationships} relationships.`);
   } catch (err) {
-    setStatus(err.message);
+    showToast(err.message);
   } finally {
     setBusy(false);
   }
@@ -77,9 +77,9 @@ async function exportJson() {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
     downloadJson(body);
-    setStatus(`Exported ${body.nodes.length} nodes and ${body.relationships.length} relationships.`);
+    showToast(`Exported ${body.nodes.length} nodes and ${body.relationships.length} relationships.`);
   } catch (err) {
-    setStatus(err.message);
+    showToast(err.message);
   } finally {
     setBusy(false);
   }
@@ -93,9 +93,9 @@ async function wipeGraph() {
     state.selectedId = null;
     state.expanded = new Set();
     await loadGraph();
-    setStatus("Planning graph wiped.");
+    showToast("Planning graph wiped.");
   } catch (err) {
-    setStatus(err.message);
+    showToast(err.message);
   } finally {
     setBusy(false);
   }
@@ -169,12 +169,12 @@ function setBusy(busy) {
   for (const btn of actionButtons) btn.disabled = busy;
 }
 
-function setStatus(msg) {
-  document.querySelector("#detail-title").textContent = "Graph";
-  document.querySelector("#detail-type").textContent = "Status";
-  document.querySelector("#detail-description").textContent = msg;
-  renderDetailList("#parents", []);
-  renderDetailList("#children", []);
+function showToast(msg) {
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = msg;
+  document.querySelector("#toast-container").appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
 }
 
 function showCanvasMessage(msg) {
@@ -347,7 +347,7 @@ function renderTree() {
   connectorSvg.setAttribute("width",   CANVAS_W);
   connectorSvg.setAttribute("height",  totalHeight);
   connectorSvg.setAttribute("viewBox", `0 0 ${CANVAS_W} ${totalHeight}`);
-  connectorSvg.innerHTML = buildConnectorPaths(nodes, edges);
+  connectorSvg.innerHTML = buildConnectorPaths(nodes, edges, null);
 
   // Cards
   for (const node of nodes) {
@@ -358,7 +358,7 @@ function renderTree() {
   updateHighlight();
 }
 
-function buildConnectorPaths(nodes, edges) {
+function buildConnectorPaths(nodes, edges, highlight) {
   const byKey     = new Map(nodes.map(n => [n.instanceKey, n]));
   const byParent  = new Map();
   for (const e of edges) {
@@ -366,6 +366,7 @@ function buildConnectorPaths(nodes, edges) {
     byParent.get(e.fromKey).push(e.toKey);
   }
 
+  const radius = 6;
   let html = "";
   for (const [fromKey, toKeys] of byParent) {
     const parent   = byKey.get(fromKey);
@@ -379,16 +380,30 @@ function buildConnectorPaths(nodes, edges) {
     const firstY = children[0].y + CARD_H / 2;
     const lastY  = children[children.length - 1].y + CARD_H / 2;
 
-    // Stub from parent right edge to bus
-    html += `<path class="connector" d="M ${px} ${py} H ${busX}" />`;
+    // Determine if this path is highlighted
+    const isHighlighted = highlight && (
+      highlight.selected?.has(fromKey) ||
+      children.some(c => highlight.selected?.has(c.instanceKey)) ||
+      (highlight.hovered && (highlight.hovered.has(fromKey) || children.some(c => highlight.hovered.has(c.instanceKey))))
+    );
+
+    const connClass = isHighlighted ? "connector highlighted" : "connector";
+
+    // Stub from parent to bus with rounded corner
+    html += `<path class="${connClass}" d="M ${px} ${py} L ${busX - radius} ${py} Q ${busX} ${py} ${busX} ${py < firstY ? firstY - radius : firstY + radius}" />`;
+
     // Vertical bus spanning all children
     if (children.length > 1) {
-      html += `<path class="connector" d="M ${busX} ${firstY} V ${lastY}" />`;
+      const busStartY = py < firstY ? firstY - radius : firstY + radius;
+      const busEndY = py < lastY ? lastY - radius : lastY + radius;
+      html += `<path class="${connClass}" d="M ${busX} ${busStartY} L ${busX} ${busEndY}" />`;
     }
+
     // Branches from bus to each child
     for (const child of children) {
       const cy = child.y + CARD_H / 2;
-      html += `<path class="connector" d="M ${busX} ${cy} H ${child.x}" />`;
+      const busStartY = children.length === 1 ? (py < cy ? cy - radius : cy + radius) : cy;
+      html += `<path class="${connClass}" d="M ${busX} ${busStartY} Q ${busX} ${cy} ${busX + radius} ${cy} L ${child.x - radius} ${cy}" />`;
     }
   }
   return html;
@@ -488,6 +503,13 @@ function updateHighlight() {
   const { selected, hovered } = computeHighlight(nodes, edges);
   const isDimming = selected !== null;
 
+  // Rebuild connectors with highlight info
+  if (selected || hovered) {
+    connectorSvg.innerHTML = buildConnectorPaths(nodes, edges, { selected, hovered });
+  } else {
+    connectorSvg.innerHTML = buildConnectorPaths(nodes, edges, null);
+  }
+
   for (const card of treeCanvas.querySelectorAll(".tree-card")) {
     const instanceKey = card.dataset.instanceKey;
     const nodeId      = card.dataset.id;
@@ -580,7 +602,11 @@ function jumpToParent(sharedId, parentId) {
   const parentKey = [...path].reverse().join("::");
   const targetKey = `${sharedId}::${parentKey}`;
   const card = treeCanvas.querySelector(`[data-instance-key="${CSS.escape(targetKey)}"]`);
-  if (card) card.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+  if (card) {
+    card.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    card.classList.add("pulse");
+    setTimeout(() => card.classList.remove("pulse"), 600);
+  }
 }
 
 function closeSharedPopover() {
