@@ -1,34 +1,56 @@
+// ── Layout constants ──────────────────────────────────────────────────────────
+
+const CARD_W  = 220;
+const CARD_H  = 50;
+const ROW_GAP = 8;
+const COL_GAP = 56;   // horizontal gap between right edge of parent and left edge of child
+const PAD_X   = 24;
+const PAD_Y   = 20;
+const STUB    = 20;   // horizontal stub from parent right to vertical bus
+
+const COL_X = [PAD_X, PAD_X + CARD_W + COL_GAP, PAD_X + 2 * (CARD_W + COL_GAP)];
+const CANVAS_W = COL_X[2] + CARD_W + PAD_X;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
 const state = {
   graph: null,
   selectedId: null,
+  hoverId: null,
   query: "",
+  expanded: new Set(),
 };
 
-const typeOrder = { Need: 0, Subneed: 1, Task: 2 };
-const svg = document.querySelector("#graph");
-const hierarchyEl = document.querySelector("#hierarchy");
-const searchEl = document.querySelector("#search");
+let sharedIds = new Set();
+let lastLayout = null;
+
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+
+const treeCanvas    = document.querySelector("#tree-canvas");
+const connectorSvg  = document.querySelector("#connector-layer");
+const hierarchyEl   = document.querySelector("#hierarchy");
+const searchEl      = document.querySelector("#search");
 const actionButtons = [...document.querySelectorAll(".graph-actions button")];
-const loadJsonButton = document.querySelector("#load-json");
-const exportJsonButton = document.querySelector("#export-json");
-const wipeGraphButton = document.querySelector("#wipe-graph");
+
+// ── API ───────────────────────────────────────────────────────────────────────
 
 async function loadGraph() {
   try {
-    const response = await fetch("/api/graph");
-    if (!response.ok) throw new Error(await response.text());
-    state.graph = await response.json();
+    const res = await fetch("/api/graph");
+    if (!res.ok) throw new Error(await res.text());
+    state.graph = await res.json();
+    sharedIds = buildSharedIds(state.graph.hierarchy);
+    for (const need of state.graph.hierarchy) state.expanded.add(need.id);
     render();
-  } catch (error) {
-    hierarchyEl.innerHTML = `<p class="empty">Could not load Neo4j graph. Import the seed data and check Neo4j credentials.</p>`;
-    document.querySelector("#detail-description").textContent = error.message;
+  } catch (err) {
+    hierarchyEl.innerHTML = `<p class="empty">Could not load graph. Import seed data and check Neo4j credentials.</p>`;
   }
 }
 
 async function postGraphAction(path) {
-  const response = await fetch(path, { method: "POST" });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || response.statusText);
+  const res = await fetch(path, { method: "POST" });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.statusText);
   return body;
 }
 
@@ -38,10 +60,11 @@ async function loadJson() {
   try {
     const result = await postGraphAction("/api/graph/import");
     state.selectedId = null;
+    state.expanded = new Set();
     await loadGraph();
-    setDetailMessage(`Loaded ${result.nodes} nodes and ${result.relationships} relationships.`);
-  } catch (error) {
-    setDetailMessage(error.message);
+    setStatus(`Loaded ${result.nodes} nodes and ${result.relationships} relationships.`);
+  } catch (err) {
+    setStatus(err.message);
   } finally {
     setBusy(false);
   }
@@ -50,13 +73,13 @@ async function loadJson() {
 async function exportJson() {
   setBusy(true);
   try {
-    const response = await fetch("/api/graph/export");
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || response.statusText);
+    const res = await fetch("/api/graph/export");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
     downloadJson(body);
-    setDetailMessage(`Exported ${body.nodes.length} nodes and ${body.relationships.length} relationships.`);
-  } catch (error) {
-    setDetailMessage(error.message);
+    setStatus(`Exported ${body.nodes.length} nodes and ${body.relationships.length} relationships.`);
+  } catch (err) {
+    setStatus(err.message);
   } finally {
     setBusy(false);
   }
@@ -68,93 +91,87 @@ async function wipeGraph() {
   try {
     await postGraphAction("/api/graph/wipe");
     state.selectedId = null;
+    state.expanded = new Set();
     await loadGraph();
-    setDetailMessage("Planning graph wiped.");
-  } catch (error) {
-    setDetailMessage(error.message);
+    setStatus("Planning graph wiped.");
+  } catch (err) {
+    setStatus(err.message);
   } finally {
     setBusy(false);
   }
 }
 
-function downloadJson(value) {
-  const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "financial-planning-graph.json";
-  link.click();
-  URL.revokeObjectURL(url);
+function fetchDetail(id) {
+  if (!state.graph) return;
+  const node = state.graph.nodes.find(n => n.id === id);
+  if (!node) return;
+
+  const byId = new Map(state.graph.nodes.map(n => [n.id, n]));
+  const parents = state.graph.relationships
+    .filter(r => r.target === id)
+    .map(r => ({ id: r.source, name: byId.get(r.source)?.name ?? r.source, relationship: r.type }));
+  const children = state.graph.relationships
+    .filter(r => r.source === id)
+    .map(r => ({ id: r.target, name: byId.get(r.target)?.name ?? r.target, relationship: r.type }));
+
+  document.querySelector("#detail-title").textContent = node.name;
+  document.querySelector("#detail-type").textContent  = getType(node);
+  document.querySelector("#detail-description").textContent = node.description || "No description.";
+  renderDetailList("#parents",  parents);
+  renderDetailList("#children", children);
 }
 
-function setBusy(isBusy) {
-  for (const button of actionButtons) {
-    button.disabled = isBusy;
-  }
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function getType(node) {
+  if (node.type) return node.type;
+  const labels = node.labels || [];
+  if (labels.includes("Need")) return "Need";
+  if (labels.includes("Subneed")) return "Subneed";
+  return "Task";
 }
 
-function setDetailMessage(message) {
-  document.querySelector("#detail-title").textContent = "Graph";
-  document.querySelector("#detail-type").textContent = "Status";
-  document.querySelector("#detail-description").textContent = message;
-  renderList("#parents", []);
-  renderList("#children", []);
-}
-
-function render() {
-  updateMetrics();
-  renderHierarchy();
-  renderGraph();
-}
-
-function updateMetrics() {
-  const counts = { Need: 0, Subneed: 0, Task: 0 };
-  for (const node of state.graph.nodes) {
-    counts[getType(node)] += 1;
-  }
-  document.querySelector("#need-count").textContent = counts.Need;
-  document.querySelector("#subneed-count").textContent = counts.Subneed;
-  document.querySelector("#task-count").textContent = counts.Task;
-}
-
-function renderHierarchy() {
-  hierarchyEl.textContent = "";
-  for (const need of state.graph.hierarchy) {
-    if (!matchesBranch(need)) continue;
-    hierarchyEl.appendChild(nodeButton(need, "need"));
-
-    for (const task of need.tasks || []) {
-      if (matchesNode(task)) hierarchyEl.appendChild(nodeButton(task, "task"));
-    }
-
-    for (const subneed of need.subneeds || []) {
-      if (!matchesBranch(subneed)) continue;
-      hierarchyEl.appendChild(nodeButton(subneed, "subneed"));
-      for (const task of subneed.tasks || []) {
-        if (matchesNode(task)) hierarchyEl.appendChild(nodeButton(task, "task"));
-      }
+function buildSharedIds(hierarchy) {
+  const seen = new Set();
+  const shared = new Set();
+  function walk(nodes) {
+    for (const n of nodes) {
+      if (seen.has(n.id)) shared.add(n.id);
+      else seen.add(n.id);
+      walk(n.subneeds || []);
+      walk(n.tasks || []);
     }
   }
+  walk(hierarchy);
+  return shared;
 }
 
-function nodeButton(node, className) {
-  const button = document.createElement("button");
-  button.className = `${className}${node.id === state.selectedId ? " selected" : ""}`;
-  button.type = "button";
-  button.textContent = node.name;
-  button.addEventListener("click", () => selectNode(node.id));
-  return button;
+function countDescendants(item) {
+  let n = 0;
+  for (const s of (item.subneeds || [])) n += 1 + countDescendants(s);
+  for (const t of (item.tasks || [])) n += 1;
+  return n;
 }
 
-function matchesBranch(node) {
-  if (matchesNode(node)) return true;
-  for (const subneed of node.subneeds || []) {
-    if (matchesBranch(subneed)) return true;
+// Returns a Set of all ancestor ids on the path from root to targetId.
+function getAncestorIds(hierarchy, targetId) {
+  function walk(item, path) {
+    const next = [...path, item.id];
+    if (item.id === targetId) return next;
+    for (const s of (item.subneeds || [])) {
+      const found = walk(s, next);
+      if (found) return found;
+    }
+    for (const t of (item.tasks || [])) {
+      if (t.id === targetId) return [...next, t.id];
+    }
+    return null;
   }
-  for (const task of node.tasks || []) {
-    if (matchesNode(task)) return true;
+  for (const need of hierarchy) {
+    const path = walk(need, []);
+    if (path) return new Set(path.slice(0, -1)); // ancestors only, not the node itself
   }
-  return false;
+  return new Set();
 }
 
 function matchesNode(node) {
@@ -162,145 +179,415 @@ function matchesNode(node) {
   return node.name.toLowerCase().includes(state.query);
 }
 
-function renderGraph() {
-  const width = svg.clientWidth || 900;
-  const height = svg.clientHeight || 600;
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.textContent = "";
-
-  const nodes = state.graph.nodes
-    .filter(matchesNode)
-    .sort((a, b) => typeOrder[getType(a)] - typeOrder[getType(b)] || a.name.localeCompare(b.name));
-  const visible = new Set(nodes.map((node) => node.id));
-  const relationships = state.graph.relationships.filter(
-    (relationship) => visible.has(relationship.source) && visible.has(relationship.target),
-  );
-  const positions = layout(nodes, relationships, width, height);
-
-  for (const relationship of relationships) {
-    const from = positions.get(relationship.source);
-    const to = positions.get(relationship.target);
-    if (!from || !to) continue;
-    const line = svgEl("line", {
-      class: "edge",
-      x1: from.x,
-      y1: from.y,
-      x2: to.x,
-      y2: to.y,
-    });
-    svg.appendChild(line);
-  }
-
-  for (const node of nodes) {
-    const position = positions.get(node.id);
-    const type = getType(node);
-    const group = svgEl("g", {
-      class: `node ${type}${node.id === state.selectedId ? " active" : ""}`,
-      transform: `translate(${position.x}, ${position.y})`,
-    });
-    group.appendChild(svgEl("circle", { r: type === "Need" ? 13 : type === "Subneed" ? 10 : 7 }));
-    group.appendChild(svgEl("text", { x: 15, y: 4 }, truncate(node.name, 34)));
-    group.addEventListener("click", () => selectNode(node.id));
-    svg.appendChild(group);
-  }
+function matchesBranch(node) {
+  if (matchesNode(node)) return true;
+  for (const s of (node.subneeds || [])) if (matchesBranch(s)) return true;
+  for (const t of (node.tasks || [])) if (matchesNode(t)) return true;
+  return false;
 }
 
-function layout(nodes, relationships, width, height) {
-  const byParent = new Map();
-  const incoming = new Set();
-  for (const relationship of relationships) {
-    incoming.add(relationship.target);
-    if (!byParent.has(relationship.source)) byParent.set(relationship.source, []);
-    byParent.get(relationship.source).push(relationship.target);
+function setBusy(busy) {
+  for (const btn of actionButtons) btn.disabled = busy;
+}
+
+function setStatus(msg) {
+  document.querySelector("#detail-title").textContent = "Graph";
+  document.querySelector("#detail-type").textContent = "Status";
+  document.querySelector("#detail-description").textContent = msg;
+  renderDetailList("#parents", []);
+  renderDetailList("#children", []);
+}
+
+function downloadJson(value) {
+  const blob = new Blob([JSON.stringify(value, null, 2) + "\n"], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "financial-planning-graph.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Layout (left-to-right tree) ───────────────────────────────────────────────
+
+function buildLayout(hierarchy) {
+  const nodes = [];
+  const edges = [];
+  let leafY = PAD_Y;
+
+  function processItem(item, depth, parentKey) {
+    const instanceKey = parentKey ? `${item.id}::${parentKey}` : item.id;
+    const type = item.type || getType(item);
+    const isExp = type !== "Task" && state.expanded.has(item.id);
+
+    // Skip non-matching branches when searching
+    if (state.query && !matchesBranch(item)) return null;
+
+    const childNodes = [];
+    if (isExp) {
+      const childItems = [
+        ...(item.subneeds || []).map(s => ({ item: s, depth: depth + 1 })),
+        ...(item.tasks   || []).map(t => ({ item: t, depth: depth + 1 })),
+      ];
+      for (const { item: child, depth: d } of childItems) {
+        const cn = processItem(child, d, instanceKey);
+        if (cn) {
+          childNodes.push(cn);
+          edges.push({ fromKey: instanceKey, toKey: cn.instanceKey });
+        }
+      }
+    }
+
+    let y;
+    if (childNodes.length === 0) {
+      y = leafY;
+      leafY += CARD_H + ROW_GAP;
+    } else {
+      y = (childNodes[0].y + childNodes[childNodes.length - 1].y) / 2;
+    }
+
+    const node = {
+      id: item.id,
+      instanceKey,
+      name: item.name,
+      type,
+      depth,
+      x: COL_X[Math.min(depth, 2)],
+      y,
+      isExpanded: isExp,
+      isShared: sharedIds.has(item.id),
+      childCount: countDescendants(item),
+    };
+    nodes.push(node);
+    return node;
   }
 
-  const roots = nodes.filter((node) => getType(node) === "Need" || !incoming.has(node.id));
-  const positions = new Map();
-  const xByType = {
-    Need: Math.max(90, width * 0.12),
-    Subneed: Math.max(260, width * 0.42),
-    Task: Math.max(470, width * 0.72),
-  };
-  const rowHeight = Math.max(34, Math.min(54, (height - 70) / Math.max(nodes.length, 1)));
-  let row = 1;
+  for (const need of hierarchy) {
+    processItem(need, 0, null);
+  }
 
-  function place(nodeId) {
-    const node = nodes.find((candidate) => candidate.id === nodeId);
-    if (!node || positions.has(nodeId)) return;
-    const type = getType(node);
-    positions.set(nodeId, { x: xByType[type], y: 30 + row * rowHeight });
-    row += 1;
-    for (const childId of byParent.get(nodeId) || []) {
-      place(childId);
+  return { nodes, edges, totalHeight: Math.max(leafY + PAD_Y, 200) };
+}
+
+// ── Highlight ─────────────────────────────────────────────────────────────────
+
+function computeHighlight(nodes, edges) {
+  const { selectedId, hoverId } = state;
+  if (!selectedId && !hoverId) return { selected: null, hovered: null };
+
+  const parentOf   = new Map(edges.map(e => [e.toKey, e.fromKey]));
+  const childrenOf = new Map();
+  for (const e of edges) {
+    if (!childrenOf.has(e.fromKey)) childrenOf.set(e.fromKey, []);
+    childrenOf.get(e.fromKey).push(e.toKey);
+  }
+
+  function ancestorKeys(instanceKey) {
+    const result = new Set();
+    let k = instanceKey;
+    while (parentOf.has(k)) { k = parentOf.get(k); result.add(k); }
+    return result;
+  }
+
+  let selected = null;
+  if (selectedId) {
+    selected = new Set();
+    for (const n of nodes.filter(n => n.id === selectedId)) {
+      selected.add(n.instanceKey);
+      for (const k of ancestorKeys(n.instanceKey)) selected.add(k);
+      for (const ck of (childrenOf.get(n.instanceKey) || [])) selected.add(ck);
     }
   }
 
-  for (const root of roots) place(root.id);
-  for (const node of nodes) place(node.id);
-  return positions;
+  let hovered = null;
+  if (hoverId && hoverId !== selectedId) {
+    hovered = new Set();
+    for (const n of nodes.filter(n => n.id === hoverId)) {
+      hovered.add(n.instanceKey);
+      for (const k of ancestorKeys(n.instanceKey)) hovered.add(k);
+    }
+  }
+
+  return { selected, hovered };
 }
 
-async function selectNode(id) {
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function render() {
+  if (!state.graph) return;
+  updateMetrics();
+  renderHierarchy();
+  renderTree();
+}
+
+function updateMetrics() {
+  const counts = { Need: 0, Subneed: 0, Task: 0 };
+  for (const n of state.graph.nodes) {
+    const t = getType(n);
+    counts[t] = (counts[t] || 0) + 1;
+  }
+  document.querySelector("#need-count").textContent    = counts.Need    || 0;
+  document.querySelector("#subneed-count").textContent = counts.Subneed || 0;
+  document.querySelector("#task-count").textContent    = counts.Task    || 0;
+}
+
+function renderHierarchy() {
+  hierarchyEl.textContent = "";
+  if (!state.graph) return;
+
+  if (state.query) {
+    // Flat filtered results
+    const matches = [];
+    function collect(items) {
+      for (const item of items) {
+        if (matchesNode(item)) matches.push(item);
+        collect(item.subneeds || []);
+        collect(item.tasks    || []);
+      }
+    }
+    collect(state.graph.hierarchy);
+    for (const node of matches) hierarchyEl.appendChild(sidebarItem(node));
+  } else {
+    // Hierarchy order: need → need's tasks → subneeds → subneed tasks
+    for (const need of state.graph.hierarchy) {
+      hierarchyEl.appendChild(sidebarItem(need));
+      for (const t of (need.tasks    || [])) hierarchyEl.appendChild(sidebarItem(t));
+      for (const s of (need.subneeds || [])) {
+        hierarchyEl.appendChild(sidebarItem(s));
+        for (const t of (s.tasks || [])) hierarchyEl.appendChild(sidebarItem(t));
+      }
+    }
+  }
+}
+
+function sidebarItem(node) {
+  const type = node.type || getType(node);
+  const btn  = document.createElement("button");
+  btn.className = `sidebar-item ${type.toLowerCase()}${node.id === state.selectedId ? " selected" : ""}`;
+  btn.type = "button";
+  btn.textContent = node.name;
+  btn.title = node.name;
+  btn.addEventListener("click", () => jumpToNode(node.id));
+  return btn;
+}
+
+function jumpToNode(id) {
+  if (!state.graph) return;
+  const ancestors = getAncestorIds(state.graph.hierarchy, id);
+  for (const aid of ancestors) state.expanded.add(aid);
+  // Also expand the node itself if it's a need or subneed
+  state.expanded.add(id);
   state.selectedId = id;
   render();
-  const response = await fetch(`/api/nodes/${encodeURIComponent(id)}`);
-  if (!response.ok) return;
-  const node = await response.json();
-  document.querySelector("#detail-title").textContent = node.name;
-  document.querySelector("#detail-type").textContent = getType(node);
-  document.querySelector("#detail-description").textContent = node.description || "No description yet.";
-  renderList("#parents", node.parents);
-  renderList("#children", node.children);
+  const card = treeCanvas.querySelector(`[data-id="${CSS.escape(id)}"]`);
+  if (card) card.scrollIntoView({ block: "center", behavior: "smooth" });
+  fetchDetail(id);
 }
 
-function renderList(selector, items) {
-  const list = document.querySelector(selector);
-  list.textContent = "";
-  if (!items.length) {
-    const item = document.createElement("li");
-    item.className = "empty";
-    item.textContent = "None";
-    list.appendChild(item);
+function renderTree() {
+  // Remove old cards and sizer, preserve connector SVG
+  for (const el of [...treeCanvas.querySelectorAll(".tree-card, .tree-sizer")]) el.remove();
+
+  if (!state.graph || !state.graph.hierarchy.length) {
+    connectorSvg.innerHTML = "";
     return;
   }
-  for (const value of items.sort((a, b) => a.name.localeCompare(b.name))) {
-    const item = document.createElement("li");
-    item.textContent = `${value.name} (${value.relationship})`;
-    list.appendChild(item);
+
+  const layout = buildLayout(state.graph.hierarchy);
+  lastLayout   = layout;
+  const { nodes, edges, totalHeight } = layout;
+
+  // Force scroll dimensions via an off-canvas 1px sizer
+  const sizer = document.createElement("div");
+  sizer.className = "tree-sizer";
+  sizer.style.cssText = `position:absolute;left:${CANVAS_W}px;top:${totalHeight}px;width:1px;height:1px;pointer-events:none`;
+  treeCanvas.appendChild(sizer);
+
+  // Connectors
+  connectorSvg.setAttribute("width",   CANVAS_W);
+  connectorSvg.setAttribute("height",  totalHeight);
+  connectorSvg.setAttribute("viewBox", `0 0 ${CANVAS_W} ${totalHeight}`);
+  connectorSvg.innerHTML = buildConnectorPaths(nodes, edges);
+
+  // Cards
+  for (const node of nodes) {
+    const card = buildCard(node);
+    treeCanvas.appendChild(card);
+  }
+
+  updateHighlight();
+}
+
+function buildConnectorPaths(nodes, edges) {
+  const byKey     = new Map(nodes.map(n => [n.instanceKey, n]));
+  const byParent  = new Map();
+  for (const e of edges) {
+    if (!byParent.has(e.fromKey)) byParent.set(e.fromKey, []);
+    byParent.get(e.fromKey).push(e.toKey);
+  }
+
+  let html = "";
+  for (const [fromKey, toKeys] of byParent) {
+    const parent   = byKey.get(fromKey);
+    if (!parent) continue;
+    const children = toKeys.map(k => byKey.get(k)).filter(Boolean);
+    if (!children.length) continue;
+
+    const px     = parent.x + CARD_W;
+    const py     = parent.y + CARD_H / 2;
+    const busX   = children[0].x - STUB;
+    const firstY = children[0].y + CARD_H / 2;
+    const lastY  = children[children.length - 1].y + CARD_H / 2;
+
+    // Stub from parent right edge to bus
+    html += `<path class="connector" d="M ${px} ${py} H ${busX}" />`;
+    // Vertical bus spanning all children
+    if (children.length > 1) {
+      html += `<path class="connector" d="M ${busX} ${firstY} V ${lastY}" />`;
+    }
+    // Branches from bus to each child
+    for (const child of children) {
+      const cy = child.y + CARD_H / 2;
+      html += `<path class="connector" d="M ${busX} ${cy} H ${child.x}" />`;
+    }
+  }
+  return html;
+}
+
+function buildCard(node) {
+  const card = document.createElement("div");
+  card.className = `tree-card ${node.type.toLowerCase()}`;
+  card.style.left  = node.x + "px";
+  card.style.top   = node.y + "px";
+  card.style.width = CARD_W + "px";
+  card.dataset.id          = node.id;
+  card.dataset.instanceKey = node.instanceKey;
+
+  // Left accent stripe
+  const stripe = document.createElement("div");
+  stripe.className = "card-stripe";
+  card.appendChild(stripe);
+
+  // Text content
+  const content  = document.createElement("div");
+  content.className = "card-content";
+
+  const typeLabel = document.createElement("span");
+  typeLabel.className = "card-type-label";
+  typeLabel.textContent = node.type;
+
+  const name = document.createElement("span");
+  name.className = "card-name";
+  name.textContent = node.name;
+  name.title       = node.name;
+
+  content.appendChild(typeLabel);
+  content.appendChild(name);
+  card.appendChild(content);
+
+  // Right side: shared badge, child count, caret
+  const right = document.createElement("div");
+  right.className = "card-right";
+
+  if (node.isShared) {
+    const badge = document.createElement("span");
+    badge.className = "shared-badge";
+    badge.title     = "Used in multiple planning areas";
+    badge.textContent = "shared";
+    right.appendChild(badge);
+  }
+
+  if (node.type !== "Task") {
+    if (!node.isExpanded && node.childCount > 0) {
+      const count = document.createElement("span");
+      count.className   = "child-count";
+      count.textContent = node.childCount;
+      right.appendChild(count);
+    }
+    const caret = document.createElement("button");
+    caret.className         = "card-caret";
+    caret.type              = "button";
+    caret.setAttribute("aria-label", node.isExpanded ? "Collapse" : "Expand");
+    caret.textContent       = node.isExpanded ? "▾" : "▸";
+    caret.addEventListener("click", e => { e.stopPropagation(); toggleExpand(node.id); });
+    right.appendChild(caret);
+  }
+
+  card.appendChild(right);
+
+  card.addEventListener("click", () => {
+    state.selectedId = node.id;
+    updateHighlight();
+    renderHierarchy();
+    fetchDetail(node.id);
+  });
+  card.addEventListener("mouseenter", () => { state.hoverId = node.id;  updateHighlight(); });
+  card.addEventListener("mouseleave", () => { state.hoverId = null; updateHighlight(); });
+
+  return card;
+}
+
+// Updates card classes without rebuilding DOM — used for hover and selection.
+function updateHighlight() {
+  if (!lastLayout) return;
+  const { nodes, edges } = lastLayout;
+  const { selected, hovered } = computeHighlight(nodes, edges);
+  const isDimming = selected !== null;
+
+  for (const card of treeCanvas.querySelectorAll(".tree-card")) {
+    const instanceKey = card.dataset.instanceKey;
+    const nodeId      = card.dataset.id;
+    const isSelected  = nodeId === state.selectedId;
+    const inSelected  = selected?.has(instanceKey);
+    const inHovered   = hovered?.has(instanceKey);
+    const isHighlighted = (inSelected || inHovered) && !isSelected;
+    const isDimmed      = isDimming && !inSelected && !isSelected;
+
+    card.classList.toggle("selected",    isSelected);
+    card.classList.toggle("highlighted", isHighlighted);
+    card.classList.toggle("dimmed",      isDimmed);
   }
 }
 
-function getType(node) {
-  if (node.type) return node.type;
-  if (node.labels.includes("Need")) return "Need";
-  if (node.labels.includes("Subneed")) return "Subneed";
-  return "Task";
-}
-
-function svgEl(name, attributes, text) {
-  const element = document.createElementNS("http://www.w3.org/2000/svg", name);
-  for (const [key, value] of Object.entries(attributes)) {
-    element.setAttribute(key, value);
+function renderDetailList(selector, items) {
+  const list = document.querySelector(selector);
+  list.textContent = "";
+  if (!items || !items.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "None";
+    list.appendChild(li);
+    return;
   }
-  if (text) element.textContent = text;
-  return element;
+  for (const item of [...items].sort((a, b) => a.name.localeCompare(b.name))) {
+    const li  = document.createElement("li");
+    li.className = "detail-item";
+    const nm  = document.createElement("span");
+    nm.textContent = item.name;
+    const rel = document.createElement("span");
+    rel.className  = "detail-item-rel";
+    rel.textContent = item.relationship;
+    li.appendChild(nm);
+    li.appendChild(rel);
+    list.appendChild(li);
+  }
 }
 
-function truncate(value, max) {
-  return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+function toggleExpand(id) {
+  if (state.expanded.has(id)) state.expanded.delete(id);
+  else state.expanded.add(id);
+  renderTree();
 }
 
-searchEl.addEventListener("input", (event) => {
-  state.query = event.target.value.trim().toLowerCase();
+// ── Events ────────────────────────────────────────────────────────────────────
+
+searchEl.addEventListener("input", e => {
+  state.query = e.target.value.trim().toLowerCase();
   render();
 });
 
-loadJsonButton.addEventListener("click", loadJson);
-exportJsonButton.addEventListener("click", exportJson);
-wipeGraphButton.addEventListener("click", wipeGraph);
-
-window.addEventListener("resize", () => {
-  if (state.graph) renderGraph();
-});
+document.querySelector("#load-json").addEventListener("click",  loadJson);
+document.querySelector("#export-json").addEventListener("click", exportJson);
+document.querySelector("#wipe-graph").addEventListener("click",  wipeGraph);
 
 loadGraph();
