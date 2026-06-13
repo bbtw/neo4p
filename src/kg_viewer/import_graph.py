@@ -1,7 +1,5 @@
 """Import the financial planning graph seed into Neo4j."""
 
-from __future__ import annotations
-
 import argparse
 import base64
 import json
@@ -25,8 +23,13 @@ def flatten_graph(seed: dict) -> tuple[list[dict], list[dict]]:
     nodes = []
     relationships = []
     seen = set()
+    seen_relationships = set()
 
-    def add_node(node_id: str, label: str, name: str, description: str = "") -> None:
+    for node in seed["nodes"]:
+        node_id = node["id"]
+        label = node["label"]
+        if label not in {"Need", "Subneed", "Task"}:
+            raise ValueError(f"unsupported node label: {label}")
         if node_id in seen:
             raise ValueError(f"duplicate node id: {node_id}")
         seen.add(node_id)
@@ -34,40 +37,30 @@ def flatten_graph(seed: dict) -> tuple[list[dict], list[dict]]:
             {
                 "id": node_id,
                 "label": label,
-                "name": name,
-                "description": description,
+                "name": node["name"],
+                "description": node.get("description", ""),
             }
         )
 
-    for need in seed.get("needs", []):
-        need_id = need["id"]
-        add_node(need_id, "Need", need["name"], need.get("description", ""))
-
-        for task in need.get("tasks", []):
-            task_id = task["id"]
-            add_node(task_id, "Task", task["name"], task.get("description", ""))
-            relationships.append(
-                {"source": need_id, "target": task_id, "type": "HAS_TASK"}
+    for relationship in seed["relationships"]:
+        source = relationship["source"]
+        target = relationship["target"]
+        relationship_type = relationship["type"]
+        key = (source, target, relationship_type)
+        if relationship_type not in {"HAS_SUBNEED", "HAS_TASK"}:
+            raise ValueError(f"unsupported relationship type: {relationship_type}")
+        if source not in seen:
+            raise ValueError(f"relationship source does not exist: {source}")
+        if target not in seen:
+            raise ValueError(f"relationship target does not exist: {target}")
+        if key in seen_relationships:
+            raise ValueError(
+                f"duplicate relationship: {source} -[{relationship_type}]-> {target}"
             )
-
-        for subneed in need.get("subneeds", []):
-            subneed_id = subneed["id"]
-            add_node(
-                subneed_id,
-                "Subneed",
-                subneed["name"],
-                subneed.get("description", ""),
-            )
-            relationships.append(
-                {"source": need_id, "target": subneed_id, "type": "HAS_SUBNEED"}
-            )
-
-            for task in subneed.get("tasks", []):
-                task_id = task["id"]
-                add_node(task_id, "Task", task["name"], task.get("description", ""))
-                relationships.append(
-                    {"source": subneed_id, "target": task_id, "type": "HAS_TASK"}
-                )
+        seen_relationships.add(key)
+        relationships.append(
+            {"source": source, "target": target, "type": relationship_type}
+        )
 
     return nodes, relationships
 

@@ -18,17 +18,24 @@
 
       <main class="workspace">
         <section class="toolbar" aria-label="Graph summary">
-          <div>
-            <span class="metric" id="need-count">0</span>
-            <span class="metric-label">Needs</span>
+          <div class="metrics">
+            <div>
+              <span class="metric" id="need-count">0</span>
+              <span class="metric-label">Needs</span>
+            </div>
+            <div>
+              <span class="metric" id="subneed-count">0</span>
+              <span class="metric-label">Subneeds</span>
+            </div>
+            <div>
+              <span class="metric" id="task-count">0</span>
+              <span class="metric-label">Tasks</span>
+            </div>
           </div>
-          <div>
-            <span class="metric" id="subneed-count">0</span>
-            <span class="metric-label">Subneeds</span>
-          </div>
-          <div>
-            <span class="metric" id="task-count">0</span>
-            <span class="metric-label">Tasks</span>
+          <div class="graph-actions" aria-label="Graph actions">
+            <button id="load-json" type="button">Load JSON</button>
+            <button id="export-json" type="button">Export JSON</button>
+            <button id="wipe-graph" class="danger" type="button">Wipe Graph</button>
           </div>
         </section>
 

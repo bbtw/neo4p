@@ -8,6 +8,10 @@ const typeOrder = { Need: 0, Subneed: 1, Task: 2 };
 const svg = document.querySelector("#graph");
 const hierarchyEl = document.querySelector("#hierarchy");
 const searchEl = document.querySelector("#search");
+const actionButtons = [...document.querySelectorAll(".graph-actions button")];
+const loadJsonButton = document.querySelector("#load-json");
+const exportJsonButton = document.querySelector("#export-json");
+const wipeGraphButton = document.querySelector("#wipe-graph");
 
 async function loadGraph() {
   try {
@@ -19,6 +23,82 @@ async function loadGraph() {
     hierarchyEl.innerHTML = `<p class="empty">Could not load Neo4j graph. Import the seed data and check Neo4j credentials.</p>`;
     document.querySelector("#detail-description").textContent = error.message;
   }
+}
+
+async function postGraphAction(path) {
+  const response = await fetch(path, { method: "POST" });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || response.statusText);
+  return body;
+}
+
+async function loadJson() {
+  if (!confirm("Replace the Neo4j planning graph with data/financial-planning-graph.json?")) return;
+  setBusy(true);
+  try {
+    const result = await postGraphAction("/api/graph/import");
+    state.selectedId = null;
+    await loadGraph();
+    setDetailMessage(`Loaded ${result.nodes} nodes and ${result.relationships} relationships.`);
+  } catch (error) {
+    setDetailMessage(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function exportJson() {
+  setBusy(true);
+  try {
+    const response = await fetch("/api/graph/export");
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || response.statusText);
+    downloadJson(body);
+    setDetailMessage(`Exported ${body.nodes.length} nodes and ${body.relationships.length} relationships.`);
+  } catch (error) {
+    setDetailMessage(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function wipeGraph() {
+  if (!confirm("Delete all FinancialPlanningGraph nodes and relationships from Neo4j?")) return;
+  setBusy(true);
+  try {
+    await postGraphAction("/api/graph/wipe");
+    state.selectedId = null;
+    await loadGraph();
+    setDetailMessage("Planning graph wiped.");
+  } catch (error) {
+    setDetailMessage(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function downloadJson(value) {
+  const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "financial-planning-graph.json";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function setBusy(isBusy) {
+  for (const button of actionButtons) {
+    button.disabled = isBusy;
+  }
+}
+
+function setDetailMessage(message) {
+  document.querySelector("#detail-title").textContent = "Graph";
+  document.querySelector("#detail-type").textContent = "Status";
+  document.querySelector("#detail-description").textContent = message;
+  renderList("#parents", []);
+  renderList("#children", []);
 }
 
 function render() {
@@ -214,6 +294,10 @@ searchEl.addEventListener("input", (event) => {
   state.query = event.target.value.trim().toLowerCase();
   render();
 });
+
+loadJsonButton.addEventListener("click", loadJson);
+exportJsonButton.addEventListener("click", exportJson);
+wipeGraphButton.addEventListener("click", wipeGraph);
 
 window.addEventListener("resize", () => {
   if (state.graph) renderGraph();

@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """Serve the financial planning graph viewer and Neo4j-backed API."""
 
-from __future__ import annotations
-
 import argparse
 import base64
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +12,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from kg_viewer.config import ROOT, load_local_env
+from kg_viewer.import_graph import DEFAULT_SEED, flatten_graph, load_seed
 
 STATIC_DIR = ROOT / "static"
 
@@ -138,6 +136,104 @@ class Neo4jClient:
         node["children"] = [item for item in node["children"] if item.get("id")]
         return node
 
+    def wipe_graph(self) -> None:
+        self.query("MATCH (n:FinancialPlanningGraph) DETACH DELETE n")
+
+    def import_seed(self, seed_path: Path) -> dict:
+        seed = load_seed(seed_path)
+        nodes, relationships = flatten_graph(seed)
+        self.wipe_graph()
+        self.query(
+            """
+            UNWIND $nodes AS node
+            CALL {
+              WITH node
+              WITH node WHERE node.label = "Need"
+              CREATE (n:FinancialPlanningGraph:Need {
+                id: node.id,
+                name: node.name,
+                description: node.description
+              })
+            }
+            CALL {
+              WITH node
+              WITH node WHERE node.label = "Subneed"
+              CREATE (n:FinancialPlanningGraph:Subneed {
+                id: node.id,
+                name: node.name,
+                description: node.description
+              })
+            }
+            CALL {
+              WITH node
+              WITH node WHERE node.label = "Task"
+              CREATE (n:FinancialPlanningGraph:Task {
+                id: node.id,
+                name: node.name,
+                description: node.description
+              })
+            }
+            """,
+            {"nodes": nodes},
+        )
+        self.query(
+            """
+            UNWIND $relationships AS rel
+            MATCH (from:FinancialPlanningGraph {id: rel.source})
+            MATCH (to:FinancialPlanningGraph {id: rel.target})
+            CALL {
+              WITH rel, from, to
+              WITH rel, from, to WHERE rel.type = "HAS_SUBNEED"
+              CREATE (from)-[:HAS_SUBNEED]->(to)
+            }
+            CALL {
+              WITH rel, from, to
+              WITH rel, from, to WHERE rel.type = "HAS_TASK"
+              CREATE (from)-[:HAS_TASK]->(to)
+            }
+            """,
+            {"relationships": relationships},
+        )
+        return {"nodes": len(nodes), "relationships": len(relationships)}
+
+    def export_seed(self) -> dict:
+        nodes = [
+            row[0]
+            for row in self.query(
+                """
+                MATCH (n:FinancialPlanningGraph)
+                WITH n,
+                  CASE
+                    WHEN n:Need THEN "Need"
+                    WHEN n:Subneed THEN "Subneed"
+                    WHEN n:Task THEN "Task"
+                  END AS label
+                RETURN {
+                  id: n.id,
+                  label: label,
+                  name: n.name,
+                  description: coalesce(n.description, "")
+                } AS node
+                ORDER BY label, n.name, n.id
+                """
+            )
+        ]
+        relationships = [
+            row[0]
+            for row in self.query(
+                """
+                MATCH (source:FinancialPlanningGraph)-[r:HAS_SUBNEED|HAS_TASK]->(target:FinancialPlanningGraph)
+                RETURN {
+                  source: source.id,
+                  target: target.id,
+                  type: type(r)
+                } AS relationship
+                ORDER BY type(r), source.id, target.id
+                """
+            )
+        ]
+        return {"nodes": nodes, "relationships": relationships}
+
 
 def node_type(node: dict) -> str:
     labels = set(node.get("labels", []))
@@ -193,6 +289,12 @@ class ViewerHandler(SimpleHTTPRequestHandler):
             except RuntimeError as error:
                 self.write_json({"error": str(error)}, status=502)
             return
+        if self.path == "/api/graph/export":
+            try:
+                self.write_json(self.client.export_seed())
+            except RuntimeError as error:
+                self.write_json({"error": str(error)}, status=502)
+            return
         if self.path.startswith("/api/nodes/"):
             node_id = unquote(self.path.removeprefix("/api/nodes/"))
             try:
@@ -208,6 +310,25 @@ class ViewerHandler(SimpleHTTPRequestHandler):
         if self.path == "/":
             self.path = "/index.html"
         super().do_GET()
+
+    def do_POST(self) -> None:
+        if self.path == "/api/graph/wipe":
+            try:
+                self.client.wipe_graph()
+            except RuntimeError as error:
+                self.write_json({"error": str(error)}, status=502)
+                return
+            self.write_json({"status": "ok"})
+            return
+        if self.path == "/api/graph/import":
+            try:
+                counts = self.client.import_seed(DEFAULT_SEED)
+            except (RuntimeError, ValueError) as error:
+                self.write_json({"error": str(error)}, status=502)
+                return
+            self.write_json({"status": "ok", **counts})
+            return
+        self.write_json({"error": "not found"}, status=404)
 
     def write_json(self, value: dict, status: int = 200) -> None:
         body = json.dumps(value).encode("utf-8")

@@ -9,6 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
+kg-export-graph = "kg_viewer.export_graph:main"
 kg-import-graph = "kg_viewer.import_graph:main"
 kg-viewer = "kg_viewer.server:main"
 
