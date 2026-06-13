@@ -23,12 +23,12 @@ const state = {
 
 let sharedIds = new Set();
 let lastLayout = null;
+let openPopover = null;
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
 const treeCanvas    = document.querySelector("#tree-canvas");
 const connectorSvg  = document.querySelector("#connector-layer");
-const hierarchyEl   = document.querySelector("#hierarchy");
 const searchEl      = document.querySelector("#search");
 const actionButtons = [...document.querySelectorAll(".graph-actions button")];
 
@@ -43,7 +43,7 @@ async function loadGraph() {
     for (const need of state.graph.hierarchy) state.expanded.add(need.id);
     render();
   } catch (err) {
-    hierarchyEl.innerHTML = `<p class="empty">Could not load graph. Import seed data and check Neo4j credentials.</p>`;
+    showCanvasMessage("Could not load graph. Import seed data and check Neo4j credentials.");
   }
 }
 
@@ -153,27 +153,6 @@ function countDescendants(item) {
   return n;
 }
 
-// Returns a Set of all ancestor ids on the path from root to targetId.
-function getAncestorIds(hierarchy, targetId) {
-  function walk(item, path) {
-    const next = [...path, item.id];
-    if (item.id === targetId) return next;
-    for (const s of (item.subneeds || [])) {
-      const found = walk(s, next);
-      if (found) return found;
-    }
-    for (const t of (item.tasks || [])) {
-      if (t.id === targetId) return [...next, t.id];
-    }
-    return null;
-  }
-  for (const need of hierarchy) {
-    const path = walk(need, []);
-    if (path) return new Set(path.slice(0, -1)); // ancestors only, not the node itself
-  }
-  return new Set();
-}
-
 function matchesNode(node) {
   if (!state.query) return true;
   return node.name.toLowerCase().includes(state.query);
@@ -196,6 +175,15 @@ function setStatus(msg) {
   document.querySelector("#detail-description").textContent = msg;
   renderDetailList("#parents", []);
   renderDetailList("#children", []);
+}
+
+function showCanvasMessage(msg) {
+  connectorSvg.innerHTML = "";
+  for (const el of [...treeCanvas.querySelectorAll(".tree-card, .tree-sizer, .canvas-empty")]) el.remove();
+  const p = document.createElement("p");
+  p.className = "canvas-empty";
+  p.textContent = msg;
+  treeCanvas.appendChild(p);
 }
 
 function downloadJson(value) {
@@ -257,6 +245,7 @@ function buildLayout(hierarchy) {
       isExpanded: isExp,
       isShared: sharedIds.has(item.id),
       childCount: countDescendants(item),
+      isMatch: state.query ? matchesNode(item) : false,
     };
     nodes.push(node);
     return node;
@@ -316,7 +305,6 @@ function computeHighlight(nodes, edges) {
 function render() {
   if (!state.graph) return;
   updateMetrics();
-  renderHierarchy();
   renderTree();
 }
 
@@ -331,62 +319,8 @@ function updateMetrics() {
   document.querySelector("#task-count").textContent    = counts.Task    || 0;
 }
 
-function renderHierarchy() {
-  hierarchyEl.textContent = "";
-  if (!state.graph) return;
-
-  if (state.query) {
-    // Flat filtered results
-    const matches = [];
-    function collect(items) {
-      for (const item of items) {
-        if (matchesNode(item)) matches.push(item);
-        collect(item.subneeds || []);
-        collect(item.tasks    || []);
-      }
-    }
-    collect(state.graph.hierarchy);
-    for (const node of matches) hierarchyEl.appendChild(sidebarItem(node));
-  } else {
-    // Hierarchy order: need → need's tasks → subneeds → subneed tasks
-    for (const need of state.graph.hierarchy) {
-      hierarchyEl.appendChild(sidebarItem(need));
-      for (const t of (need.tasks    || [])) hierarchyEl.appendChild(sidebarItem(t));
-      for (const s of (need.subneeds || [])) {
-        hierarchyEl.appendChild(sidebarItem(s));
-        for (const t of (s.tasks || [])) hierarchyEl.appendChild(sidebarItem(t));
-      }
-    }
-  }
-}
-
-function sidebarItem(node) {
-  const type = node.type || getType(node);
-  const btn  = document.createElement("button");
-  btn.className = `sidebar-item ${type.toLowerCase()}${node.id === state.selectedId ? " selected" : ""}`;
-  btn.type = "button";
-  btn.textContent = node.name;
-  btn.title = node.name;
-  btn.addEventListener("click", () => jumpToNode(node.id));
-  return btn;
-}
-
-function jumpToNode(id) {
-  if (!state.graph) return;
-  const ancestors = getAncestorIds(state.graph.hierarchy, id);
-  for (const aid of ancestors) state.expanded.add(aid);
-  // Also expand the node itself if it's a need or subneed
-  state.expanded.add(id);
-  state.selectedId = id;
-  render();
-  const card = treeCanvas.querySelector(`[data-id="${CSS.escape(id)}"]`);
-  if (card) card.scrollIntoView({ block: "center", behavior: "smooth" });
-  fetchDetail(id);
-}
-
 function renderTree() {
-  // Remove old cards and sizer, preserve connector SVG
-  for (const el of [...treeCanvas.querySelectorAll(".tree-card, .tree-sizer")]) el.remove();
+  for (const el of [...treeCanvas.querySelectorAll(".tree-card, .tree-sizer, .canvas-empty")]) el.remove();
 
   if (!state.graph || !state.graph.hierarchy.length) {
     connectorSvg.innerHTML = "";
@@ -396,6 +330,12 @@ function renderTree() {
   const layout = buildLayout(state.graph.hierarchy);
   lastLayout   = layout;
   const { nodes, edges, totalHeight } = layout;
+
+  if (!nodes.length) {
+    connectorSvg.innerHTML = "";
+    showCanvasMessage("No nodes match your search.");
+    return;
+  }
 
   // Force scroll dimensions via an off-canvas 1px sizer
   const sizer = document.createElement("div");
@@ -462,6 +402,7 @@ function buildCard(node) {
   card.style.width = CARD_W + "px";
   card.dataset.id          = node.id;
   card.dataset.instanceKey = node.instanceKey;
+  card.dataset.isMatch     = node.isMatch ? "1" : "0";
 
   // Left accent stripe
   const stripe = document.createElement("div");
@@ -490,10 +431,12 @@ function buildCard(node) {
   right.className = "card-right";
 
   if (node.isShared) {
-    const badge = document.createElement("span");
+    const badge = document.createElement("button");
+    badge.type      = "button";
     badge.className = "shared-badge";
-    badge.title     = "Used in multiple planning areas";
+    badge.title     = "Used in multiple planning areas — click to see where";
     badge.textContent = "shared";
+    badge.addEventListener("click", e => { e.stopPropagation(); toggleSharedPopover(node, badge); });
     right.appendChild(badge);
   }
 
@@ -518,7 +461,6 @@ function buildCard(node) {
   card.addEventListener("click", () => {
     state.selectedId = node.id;
     updateHighlight();
-    renderHierarchy();
     fetchDetail(node.id);
   });
   card.addEventListener("mouseenter", () => { state.hoverId = node.id;  updateHighlight(); });
@@ -527,9 +469,21 @@ function buildCard(node) {
   return card;
 }
 
-// Updates card classes without rebuilding DOM — used for hover and selection.
+// Updates card classes without rebuilding DOM — used for hover, selection, and search highlight.
 function updateHighlight() {
   if (!lastLayout) return;
+
+  if (state.query) {
+    for (const card of treeCanvas.querySelectorAll(".tree-card")) {
+      const isMatch    = card.dataset.isMatch === "1";
+      const isSelected = card.dataset.id === state.selectedId;
+      card.classList.toggle("selected",    isSelected);
+      card.classList.toggle("highlighted", isMatch && !isSelected);
+      card.classList.toggle("dimmed",      !isMatch && !isSelected);
+    }
+    return;
+  }
+
   const { nodes, edges } = lastLayout;
   const { selected, hovered } = computeHighlight(nodes, edges);
   const isDimming = selected !== null;
@@ -579,11 +533,140 @@ function toggleExpand(id) {
   renderTree();
 }
 
+// ── Shared-node "other parents" popover ─────────────────────────────────────────
+
+// The immediate parents of this node, by id, excluding the one this instance sits
+// under. instanceKey is the reversed id-path joined by "::", so segment [1] is the
+// current parent's id (undefined for a root).
+function otherParents(node) {
+  const byId = new Map(state.graph.nodes.map(n => [n.id, n]));
+  const currentParentId = node.instanceKey.split("::")[1];
+  const seen = new Set();
+  const out  = [];
+  for (const r of state.graph.relationships) {
+    if (r.target !== node.id) continue;
+    const pid = r.source;
+    if (pid === currentParentId || seen.has(pid)) continue;
+    seen.add(pid);
+    const pnode = byId.get(pid);
+    out.push({ id: pid, name: pnode?.name ?? pid, type: pnode ? getType(pnode) : "" });
+  }
+  return out;
+}
+
+// First root→target id-path through the hierarchy, or null.
+function findIdPath(targetId) {
+  let found = null;
+  function walk(item, path) {
+    if (found) return;
+    const next = [...path, item.id];
+    if (item.id === targetId) { found = next; return; }
+    for (const c of (item.subneeds || [])) walk(c, next);
+    for (const t of (item.tasks    || [])) walk(t, next);
+  }
+  for (const root of state.graph.hierarchy) walk(root, []);
+  return found;
+}
+
+// Reveal the shared node where it lives under `parentId`: expand that branch,
+// select the node, and scroll its instance into view.
+function jumpToParent(sharedId, parentId) {
+  const path = findIdPath(parentId);
+  if (!path) return;
+  for (const pid of path) state.expanded.add(pid);
+  state.selectedId = sharedId;
+  renderTree();
+  fetchDetail(sharedId);
+  const parentKey = [...path].reverse().join("::");
+  const targetKey = `${sharedId}::${parentKey}`;
+  const card = treeCanvas.querySelector(`[data-instance-key="${CSS.escape(targetKey)}"]`);
+  if (card) card.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+}
+
+function closeSharedPopover() {
+  if (openPopover) { openPopover.remove(); openPopover = null; }
+}
+
+function positionPopover(pop, anchorEl) {
+  const r = anchorEl.getBoundingClientRect();
+  pop.style.top  = `${r.bottom + 6}px`;
+  pop.style.left = `${r.left}px`;
+  const pr = pop.getBoundingClientRect();
+  if (pr.right > window.innerWidth - 8)
+    pop.style.left = `${Math.max(8, window.innerWidth - 8 - pr.width)}px`;
+  if (pr.bottom > window.innerHeight - 8)
+    pop.style.top = `${Math.max(8, r.top - 6 - pr.height)}px`;
+}
+
+function toggleSharedPopover(node, anchorEl) {
+  const wasOpenForThis = openPopover && openPopover.dataset.for === node.instanceKey;
+  closeSharedPopover();
+  if (wasOpenForThis) return;
+
+  const others = otherParents(node);
+  const pop = document.createElement("div");
+  pop.className   = "shared-popover";
+  pop.dataset.for = node.instanceKey;
+
+  const head = document.createElement("div");
+  head.className   = "shared-popover-head";
+  head.textContent = others.length ? "Also appears under" : "No other parents";
+  pop.appendChild(head);
+
+  if (others.length) {
+    const ul = document.createElement("ul");
+    ul.className = "shared-popover-list";
+    for (const p of others) {
+      const li = document.createElement("li");
+      li.className = "shared-popover-item";
+      li.tabIndex  = 0;
+      const nm = document.createElement("span");
+      nm.className   = "shared-popover-name";
+      nm.textContent = p.name;
+      const ty = document.createElement("span");
+      ty.className   = "shared-popover-type";
+      ty.textContent = p.type;
+      li.append(nm, ty);
+      const go = () => { closeSharedPopover(); jumpToParent(node.id, p.id); };
+      li.addEventListener("click", e => { e.stopPropagation(); go(); });
+      li.addEventListener("keydown", e => { if (e.key === "Enter") { e.stopPropagation(); go(); } });
+      ul.appendChild(li);
+    }
+    pop.appendChild(ul);
+  }
+
+  document.body.appendChild(pop);
+  positionPopover(pop, anchorEl);
+  openPopover = pop;
+}
+
 // ── Events ────────────────────────────────────────────────────────────────────
 
 searchEl.addEventListener("input", e => {
   state.query = e.target.value.trim().toLowerCase();
   render();
+});
+
+// Clear the selection by clicking empty canvas or pressing Escape.
+function clearSelection() {
+  if (!state.selectedId) return;
+  state.selectedId = null;
+  updateHighlight();
+}
+
+treeCanvas.addEventListener("click", e => {
+  if (!e.target.closest(".tree-card")) clearSelection();
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (openPopover) closeSharedPopover();
+  else clearSelection();
+});
+
+document.addEventListener("click", e => {
+  if (openPopover && !openPopover.contains(e.target) && !e.target.closest(".shared-badge"))
+    closeSharedPopover();
 });
 
 document.querySelector("#load-json").addEventListener("click",  loadJson);

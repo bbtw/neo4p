@@ -99,7 +99,7 @@ Tax -> Review current tax profile
 - Every subneed belongs to one need.
 - Most tasks belong to one subneed.
 - A task can belong directly to a need when no single subneed is the obvious home.
-- Avoid duplicating the same task under multiple subneeds.
+- A reusable task can belong to multiple subneeds or needs; model it as one task node with a `HAS_TASK` relationship from each parent rather than duplicating the node.
 - Task names use planner action verbs.
 - Tasks describe planner work, not vague client outcomes.
 - V1 does not define client applicability rules, household fact schemas, thresholds, or recommendation logic.

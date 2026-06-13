@@ -16,6 +16,27 @@ The browser UI provides:
 - A detail panel showing the selected node's parents and children.
 - Buttons to load the JSON seed, export Neo4j back to JSON, and wipe the app graph.
 
+## Interacting With The Graph
+
+- Click any node to select it. Its ancestors and direct children stay
+  highlighted while the rest of the canvas dims. Dimmed nodes are still
+  clickable, so you can refocus on any node at any time.
+- Clear the selection by clicking empty canvas space or pressing `Esc`.
+- Use the caret on a need or subneed to expand or collapse its children.
+- The search box filters the canvas to matching nodes and their branches.
+
+### Shared nodes
+
+A task or subneed that belongs to more than one parent is marked with a
+`shared` badge. Click the badge to open a popover listing the node's other
+parents (every parent it appears under, except the one you are currently
+viewing it through). Click a parent in that list to jump to that location: the
+viewer expands the branch, scrolls the node's instance into view, and selects
+it. Pressing `Esc` closes the popover before it clears the selection.
+
+> Note: if a listed parent is itself shared (appears in multiple places in the
+> hierarchy), the jump lands on that parent's first occurrence.
+
 ## Graph Model
 
 The graph has three node labels:

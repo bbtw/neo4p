@@ -8,14 +8,6 @@
   </head>
   <body>
     <div class="app">
-      <aside class="sidebar">
-        <div class="sidebar-header">
-          <h1>Planning Graph</h1>
-          <input id="search" type="search" placeholder="Search nodes…">
-        </div>
-        <nav id="hierarchy" class="hierarchy" aria-label="Planning hierarchy"></nav>
-      </aside>
-
       <main class="workspace">
         <section class="toolbar" aria-label="Graph summary">
           <div class="metrics">
@@ -32,6 +24,7 @@
               <span class="metric-label">Tasks</span>
             </div>
           </div>
+          <input id="search" type="search" placeholder="Search nodes…">
           <div class="graph-actions" aria-label="Graph actions">
             <button id="load-json" type="button">Load JSON</button>
             <button id="export-json" type="button">Export JSON</button>
