@@ -207,8 +207,6 @@ function setAccent(el, needId) {
 
 // ── Tier 0: Overview ──────────────────────────────────────────────────────────
 
-const DIAMOND_ROWS = [2, 3, 2]; // bespoke to N=7
-
 function renderOverview() {
   state.view = 'overview';
   state.activeNeed = null;
@@ -220,90 +218,116 @@ function renderOverview() {
     return;
   }
 
-  const needs = state.graph.hierarchy;
-  const totalDiamond = DIAMOND_ROWS.reduce((a, b) => a + b, 0);
-  const wrapper = document.createElement('div');
-  wrapper.className = 'overview-wrapper';
+  const board = document.createElement('div');
+  board.className = 'board overview-board';
 
-  if (needs.length === totalDiamond) {
-    const diamond = document.createElement('div');
-    diamond.className = 'diamond-grid';
-    let i = 0;
-    for (const rowSize of DIAMOND_ROWS) {
-      const row = document.createElement('div');
-      row.className = 'diamond-row';
-      for (let r = 0; r < rowSize; r++) {
-        row.appendChild(buildNeedCard(needs[i++]));
-      }
-      diamond.appendChild(row);
-    }
-    wrapper.appendChild(diamond);
-  } else {
-    const grid = document.createElement('div');
-    grid.className = 'concept-grid';
-    for (const need of needs) {
-      grid.appendChild(buildNeedCard(need));
-    }
-    wrapper.appendChild(grid);
+  board.appendChild(buildSummaryCard());
+  for (const need of state.graph.hierarchy) {
+    board.appendChild(buildNeedColumn(need));
   }
 
-  stageEl.appendChild(wrapper);
+  stageEl.appendChild(board);
 }
 
-function buildNeedCard(need) {
-  const taskCount    = countTasks(need);
+function buildNeedColumn(need) {
   const subneedCount = (need.subneeds || []).length;
+  const taskCount    = countTasks(need);
 
-  const card = document.createElement('div');
-  card.className = 'need-card';
-  setAccent(card, need.id);
-  card.dataset.needId = need.id;
+  const col = document.createElement('div');
+  col.className = 'subneed-col';
+  setAccent(col, need.id);
 
-  const accent = document.createElement('div');
-  accent.className = 'need-card-accent';
-  card.appendChild(accent);
+  const hdr = document.createElement('div');
+  hdr.className = 'col-header';
+  hdr.style.cursor = 'pointer';
+  hdr.addEventListener('click', () => navigateToNeed(need, col));
 
-  const body = document.createElement('div');
-  body.className = 'need-card-body';
-
-  const name = document.createElement('h2');
-  name.className = 'need-card-name';
-  name.textContent = need.name;
-  body.appendChild(name);
+  const colName = document.createElement('div');
+  colName.className = 'col-name';
+  colName.textContent = need.name;
+  hdr.appendChild(colName);
 
   if (need.description) {
-    const desc = document.createElement('p');
-    desc.className = 'need-card-desc';
-    desc.textContent = need.description;
-    body.appendChild(desc);
+    const colDesc = document.createElement('div');
+    colDesc.className = 'col-desc';
+    colDesc.textContent = need.description;
+    hdr.appendChild(colDesc);
   }
 
-  const meta = document.createElement('div');
-  meta.className = 'need-card-meta';
-  meta.textContent = `${subneedCount} subneed${subneedCount !== 1 ? 's' : ''} · ${taskCount} task${taskCount !== 1 ? 's' : ''}`;
-  body.appendChild(meta);
-  card.appendChild(body);
+  const colCount = document.createElement('div');
+  colCount.className = 'col-count';
+  colCount.textContent = `${subneedCount} subneed${subneedCount !== 1 ? 's' : ''} · ${taskCount} task${taskCount !== 1 ? 's' : ''}`;
+  hdr.appendChild(colCount);
+  col.appendChild(hdr);
 
-  const subneeds = need.subneeds || [];
-  const subneedList = document.createElement('div');
-  subneedList.className = 'need-card-subneeds';
-  const cap = 3;
-  for (const s of subneeds.slice(0, cap)) {
-    const item = document.createElement('div');
-    item.className = 'need-card-subneed';
-    item.textContent = s.name;
-    subneedList.appendChild(item);
-  }
-  if (subneeds.length > cap) {
-    const more = document.createElement('div');
-    more.className = 'need-card-more';
-    more.textContent = `+ ${subneeds.length - cap} more`;
-    subneedList.appendChild(more);
-  }
-  card.appendChild(subneedList);
+  const rows = document.createElement('div');
+  rows.className = 'col-cards';
+  const topSubneeds = [...(need.subneeds || [])]
+    .sort((a, b) => (b.tasks || []).length - (a.tasks || []).length)
+    .slice(0, 3);
+  for (const sub of topSubneeds) {
+    const n    = (sub.tasks || []).length;
+    const row  = document.createElement('div');
+    row.className = 'overview-subneed-row';
 
-  card.addEventListener('click', () => navigateToNeed(need, card));
-  return card;
+    const nm   = document.createElement('span');
+    nm.className = 'overview-subneed-name';
+    nm.textContent = sub.name;
+
+    const ct   = document.createElement('span');
+    ct.className = 'overview-subneed-count';
+    ct.textContent = n;
+
+    row.append(nm, ct);
+    rows.appendChild(row);
+  }
+  col.appendChild(rows);
+
+  return col;
+}
+
+function buildSummaryCard() {
+  const { hierarchy, nodes } = state.graph;
+  const subneedCount = nodes.filter(n => getType(n) === 'Subneed').length;
+  const taskCount    = nodes.filter(n => getType(n) === 'Task').length;
+
+  const col = document.createElement('div');
+  col.className = 'subneed-col overview-summary';
+
+  const hdr = document.createElement('div');
+  hdr.className = 'col-header';
+  const colName = document.createElement('div');
+  colName.className = 'col-name';
+  colName.textContent = 'Summary';
+  hdr.appendChild(colName);
+  const colDesc = document.createElement('div');
+  colDesc.className = 'col-desc';
+  colDesc.textContent = 'Planning graph at a glance';
+  hdr.appendChild(colDesc);
+  col.appendChild(hdr);
+
+  const cards = document.createElement('div');
+  cards.className = 'col-cards';
+
+  for (const [label, count] of [
+    ['Subneeds',     subneedCount],
+    ['Tasks',        taskCount],
+    ['Shared tasks', sharedIds.size],
+  ]) {
+    const row = document.createElement('div');
+    row.className = 'overview-subneed-row';
+    const nm = document.createElement('span');
+    nm.className = 'overview-subneed-name';
+    nm.textContent = label;
+    const ct = document.createElement('span');
+    ct.className = 'overview-summary-count';
+    ct.textContent = count;
+    row.append(nm, ct);
+    cards.appendChild(row);
+  }
+
+  col.appendChild(cards);
+  return col;
 }
 
 // ── Tier 1: Need focus ────────────────────────────────────────────────────────
@@ -375,7 +399,9 @@ function navigateToNeed(need, fromCard) {
       need.id
     ));
   }
-  for (const sub of (need.subneeds || [])) {
+  const sortedSubneeds = [...(need.subneeds || [])]
+    .sort((a, b) => (b.tasks || []).length - (a.tasks || []).length);
+  for (const sub of sortedSubneeds) {
     board.appendChild(buildSubneedCol(sub, need.id));
   }
   stageEl.appendChild(board);
