@@ -3,61 +3,48 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Financial Planning Graph</title>
+    <title>Financial Planning</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <div class="app">
-      <main class="workspace">
-        <section class="toolbar" aria-label="Graph summary">
-          <div class="metrics">
-            <div class="metric-group">
-              <span class="metric" id="need-count">0</span>
-              <span class="metric-label">Needs</span>
-            </div>
-            <div class="metric-group">
-              <span class="metric" id="subneed-count">0</span>
-              <span class="metric-label">Subneeds</span>
-            </div>
-            <div class="metric-group">
-              <span class="metric" id="task-count">0</span>
-              <span class="metric-label">Tasks</span>
-            </div>
-          </div>
-          <input id="search" type="search" placeholder="Search nodes…">
-          <div class="graph-actions" aria-label="Graph actions">
-            <button id="load-json" type="button">Load JSON</button>
-            <button id="export-json" type="button">Export JSON</button>
-            <button id="wipe-graph" class="danger" type="button">Wipe Graph</button>
-          </div>
-        </section>
 
-        <section class="graph-shell">
-          <div class="tree-canvas" id="tree-canvas">
-            <svg id="connector-layer" aria-hidden="true"></svg>
-          </div>
-          <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
-        </section>
-      </main>
+      <header class="app-header">
+        <span class="app-title">Financial Planning</span>
+        <button class="search-trigger" id="search-trigger" aria-label="Search">
+          <span class="search-icon">⌕</span>
+          <span class="search-placeholder">Search needs, subneeds, tasks…</span>
+          <kbd>⌘K</kbd>
+        </button>
+        <button class="overflow-btn" id="overflow-btn" aria-label="More actions" title="Load / Export / Wipe">···</button>
+      </header>
 
-      <aside class="detail">
-        <div class="detail-header">
-          <h2 id="detail-title">Select a node</h2>
-          <p id="detail-type" class="pill">No selection</p>
-        </div>
-        <div class="detail-body">
-          <p id="detail-description">Choose a need, subneed, or task to review its relationships.</p>
-          <div class="detail-section">
-            <h3>Parents</h3>
-            <ul id="parents"></ul>
-          </div>
-          <div class="detail-section">
-            <h3>Children</h3>
-            <ul id="children"></ul>
-          </div>
-        </div>
-      </aside>
+      <div class="main">
+        <div class="stage" id="stage"></div>
+        <aside class="detail-drawer" id="detail-drawer" aria-label="Detail"></aside>
+      </div>
+
     </div>
+
+    <!-- Search overlay -->
+    <div class="search-overlay hidden" id="search-overlay" role="dialog" aria-modal="true" aria-label="Search">
+      <div class="search-dialog">
+        <input class="search-input" id="search-input" type="search"
+               placeholder="Search needs, subneeds, tasks…" autocomplete="off" spellcheck="false">
+        <div class="search-results" id="search-results"></div>
+      </div>
+      <div class="search-backdrop" id="search-backdrop"></div>
+    </div>
+
+    <!-- Overflow menu (Load / Export / Wipe) -->
+    <div class="overflow-menu hidden" id="overflow-menu">
+      <button id="load-json">Load JSON</button>
+      <button id="export-json">Export JSON</button>
+      <button id="wipe-graph" class="danger">Wipe Graph</button>
+    </div>
+
+    <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
     <script src="/app.js"></script>
   </body>
 </html>

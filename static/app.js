@@ -1,69 +1,72 @@
-// ── Layout constants ──────────────────────────────────────────────────────────
+// ── Palette (colorblind-safe categorical) ─────────────────────────────────────
 
-const CARD_W  = 220;
-const CARD_H  = 50;
-const ROW_GAP = 8;
-const COL_GAP = 56;   // horizontal gap between right edge of parent and left edge of child
-const PAD_X   = 24;
-const PAD_Y   = 20;
-const STUB    = 20;   // horizontal stub from parent right to vertical bus
-const NEED_GAP   = 32;  // extra vertical gap between top-level need groups
-const BAND_PAD   = 8;   // vertical padding of a need's swim-lane band around its cards
-const BAND_INSET = 10;  // horizontal inset of the swim-lane band from the canvas edges
-
-const COL_X = [PAD_X, PAD_X + CARD_W + COL_GAP, PAD_X + 2 * (CARD_W + COL_GAP)];
-const CANVAS_W = COL_X[2] + CARD_W + PAD_X;
+const PALETTE = [
+  { hex: '#0ea5e9', rgb: '14,165,233'  }, // sky
+  { hex: '#10b981', rgb: '16,185,129'  }, // emerald
+  { hex: '#8b5cf6', rgb: '139,92,246'  }, // violet
+  { hex: '#f59e0b', rgb: '245,158,11'  }, // amber
+  { hex: '#ef4444', rgb: '239,68,68'   }, // red
+  { hex: '#ec4899', rgb: '236,72,153'  }, // pink
+  { hex: '#6366f1', rgb: '99,102,241'  }, // indigo
+  { hex: '#14b8a6', rgb: '20,184,166'  }, // teal
+];
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const state = {
-  graph: null,
+  graph:      null,
+  view:       'overview', // 'overview' | 'need'
+  activeNeed: null,
   selectedId: null,
-  hoverId: null,
-  query: "",
-  expanded: new Set(),
+  needColors: new Map(), // needId -> { hex, rgb }
 };
 
-let sharedIds = new Set();
-let lastLayout = null;
+let sharedIds   = new Set();
 let openPopover = null;
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
-const treeCanvas    = document.querySelector("#tree-canvas");
-const connectorSvg  = document.querySelector("#connector-layer");
-const searchEl      = document.querySelector("#search");
-const actionButtons = [...document.querySelectorAll(".graph-actions button")];
+const stageEl       = document.querySelector('#stage');
+const drawerEl      = document.querySelector('#detail-drawer');
+const searchOverlay = document.querySelector('#search-overlay');
+const searchInput   = document.querySelector('#search-input');
+const searchResults = document.querySelector('#search-results');
+const overflowMenu  = document.querySelector('#overflow-menu');
+const toastEl       = document.querySelector('#toast-container');
 
 // ── API ───────────────────────────────────────────────────────────────────────
 
 async function loadGraph() {
   try {
-    const res = await fetch("/api/graph");
+    const res = await fetch('/api/graph');
     if (!res.ok) throw new Error(await res.text());
     state.graph = await res.json();
+    state.graph.hierarchy.forEach((need, i) => {
+      state.needColors.set(need.id, PALETTE[i % PALETTE.length]);
+    });
     sharedIds = buildSharedIds(state.graph.hierarchy);
-    for (const need of state.graph.hierarchy) state.expanded.add(need.id);
-    render();
-  } catch (err) {
-    showCanvasMessage("Could not load graph. Import seed data and check Neo4j credentials.");
+    renderOverview();
+  } catch {
+    showCanvasMessage('Could not load graph. Import seed data and check Neo4j credentials.');
   }
 }
 
 async function postGraphAction(path) {
-  const res = await fetch(path, { method: "POST" });
+  const res = await fetch(path, { method: 'POST' });
   const body = await res.json();
   if (!res.ok) throw new Error(body.error || res.statusText);
   return body;
 }
 
 async function loadJson() {
-  if (!confirm("Replace the Neo4j planning graph with data/financial-planning-graph.json?")) return;
+  if (!confirm('Replace the Neo4j planning graph with data/financial-planning-graph.json?')) return;
   setBusy(true);
   try {
-    const result = await postGraphAction("/api/graph/import");
+    const result = await postGraphAction('/api/graph/import');
+    state.activeNeed = null;
     state.selectedId = null;
-    state.expanded = new Set();
+    state.needColors  = new Map();
+    sharedIds = new Set();
     await loadGraph();
     showToast(`Loaded ${result.nodes} nodes and ${result.relationships} relationships.`);
   } catch (err) {
@@ -76,7 +79,7 @@ async function loadJson() {
 async function exportJson() {
   setBusy(true);
   try {
-    const res = await fetch("/api/graph/export");
+    const res = await fetch('/api/graph/export');
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
     downloadJson(body);
@@ -89,14 +92,16 @@ async function exportJson() {
 }
 
 async function wipeGraph() {
-  if (!confirm("Delete all FinancialPlanningGraph nodes and relationships from Neo4j?")) return;
+  if (!confirm('Delete all FinancialPlanningGraph nodes and relationships from Neo4j?')) return;
   setBusy(true);
   try {
-    await postGraphAction("/api/graph/wipe");
+    await postGraphAction('/api/graph/wipe');
+    state.activeNeed = null;
     state.selectedId = null;
-    state.expanded = new Set();
+    state.needColors  = new Map();
+    sharedIds = new Set();
     await loadGraph();
-    showToast("Planning graph wiped.");
+    showToast('Planning graph wiped.');
   } catch (err) {
     showToast(err.message);
   } finally {
@@ -104,34 +109,14 @@ async function wipeGraph() {
   }
 }
 
-function fetchDetail(id) {
-  if (!state.graph) return;
-  const node = state.graph.nodes.find(n => n.id === id);
-  if (!node) return;
-
-  const byId = new Map(state.graph.nodes.map(n => [n.id, n]));
-  const parents = state.graph.relationships
-    .filter(r => r.target === id)
-    .map(r => ({ id: r.source, name: byId.get(r.source)?.name ?? r.source, relationship: r.type }));
-  const children = state.graph.relationships
-    .filter(r => r.source === id)
-    .map(r => ({ id: r.target, name: byId.get(r.target)?.name ?? r.target, relationship: r.type }));
-
-  document.querySelector("#detail-title").textContent = node.name;
-  document.querySelector("#detail-type").textContent  = getType(node);
-  document.querySelector("#detail-description").textContent = node.description || "No description.";
-  renderDetailList("#parents",  parents);
-  renderDetailList("#children", children);
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getType(node) {
-  if (node.type) return node.type;
+  if (node.type)  return node.type;
   const labels = node.labels || [];
-  if (labels.includes("Need")) return "Need";
-  if (labels.includes("Subneed")) return "Subneed";
-  return "Task";
+  if (labels.includes('Need'))    return 'Need';
+  if (labels.includes('Subneed')) return 'Subneed';
+  return 'Task';
 }
 
 function buildSharedIds(hierarchy) {
@@ -142,613 +127,713 @@ function buildSharedIds(hierarchy) {
       if (seen.has(n.id)) shared.add(n.id);
       else seen.add(n.id);
       walk(n.subneeds || []);
-      walk(n.tasks || []);
+      walk(n.tasks    || []);
     }
   }
   walk(hierarchy);
   return shared;
 }
 
-function countDescendants(item) {
-  let n = 0;
-  for (const s of (item.subneeds || [])) n += 1 + countDescendants(s);
-  for (const t of (item.tasks || [])) n += 1;
+function countTasks(node) {
+  let n = (node.tasks || []).length;
+  for (const s of (node.subneeds || [])) n += countTasks(s);
   return n;
 }
 
-function matchesNode(node) {
-  if (!state.query) return true;
-  return node.name.toLowerCase().includes(state.query);
-}
-
-function matchesBranch(node) {
-  if (matchesNode(node)) return true;
-  for (const s of (node.subneeds || [])) if (matchesBranch(s)) return true;
-  for (const t of (node.tasks || [])) if (matchesNode(t)) return true;
+function taskExistsUnder(node, taskId) {
+  for (const t of (node.tasks    || [])) if (t.id === taskId) return true;
+  for (const s of (node.subneeds || [])) if (taskExistsUnder(s, taskId)) return true;
   return false;
 }
 
+function getOtherNeedsForTask(taskId) {
+  if (!state.graph) return [];
+  return state.graph.hierarchy.filter(need => {
+    if (need === state.activeNeed) return false;
+    return taskExistsUnder(need, taskId);
+  });
+}
+
+function getTaskHomes(taskId) {
+  const homes = [];
+  if (!state.graph) return homes;
+  for (const need of state.graph.hierarchy) {
+    for (const t of (need.tasks || [])) {
+      if (t.id === taskId) homes.push({ needId: need.id, needName: need.name, subneedName: null });
+    }
+    for (const sub of (need.subneeds || [])) {
+      for (const t of (sub.tasks || [])) {
+        if (t.id === taskId) homes.push({ needId: need.id, needName: need.name, subneedName: sub.name });
+      }
+    }
+  }
+  return homes;
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 function setBusy(busy) {
-  for (const btn of actionButtons) btn.disabled = busy;
+  for (const btn of overflowMenu.querySelectorAll('button')) btn.disabled = busy;
 }
 
 function showToast(msg) {
-  const toast = document.createElement("div");
-  toast.className = "toast";
+  const toast = document.createElement('div');
+  toast.className = 'toast';
   toast.textContent = msg;
-  document.querySelector("#toast-container").appendChild(toast);
+  toastEl.appendChild(toast);
   setTimeout(() => toast.remove(), 4000);
 }
 
 function showCanvasMessage(msg) {
-  connectorSvg.innerHTML = "";
-  for (const el of [...treeCanvas.querySelectorAll(".need-band, .tree-card, .tree-sizer, .canvas-empty")]) el.remove();
-  const p = document.createElement("p");
-  p.className = "canvas-empty";
-  p.textContent = msg;
-  treeCanvas.appendChild(p);
+  stageEl.innerHTML = `<p class="canvas-empty">${msg}</p>`;
 }
 
 function downloadJson(value) {
-  const blob = new Blob([JSON.stringify(value, null, 2) + "\n"], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "financial-planning-graph.json";
-  a.click();
+  const blob = new Blob([JSON.stringify(value, null, 2) + '\n'], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'financial-planning-graph.json'; a.click();
   URL.revokeObjectURL(url);
 }
 
-// ── Layout (left-to-right tree) ───────────────────────────────────────────────
-
-function buildLayout(hierarchy) {
-  const nodes = [];
-  const edges = [];
-  let leafY = PAD_Y;
-
-  function processItem(item, depth, parentKey) {
-    const instanceKey = parentKey ? `${item.id}::${parentKey}` : item.id;
-    const type = item.type || getType(item);
-    const isExp = type !== "Task" && state.expanded.has(item.id);
-
-    // Skip non-matching branches when searching
-    if (state.query && !matchesBranch(item)) return null;
-
-    const childNodes = [];
-    if (isExp) {
-      const childItems = [
-        ...(item.subneeds || []).map(s => ({ item: s, depth: depth + 1 })),
-        ...(item.tasks   || []).map(t => ({ item: t, depth: depth + 1 })),
-      ];
-      for (const { item: child, depth: d } of childItems) {
-        const cn = processItem(child, d, instanceKey);
-        if (cn) {
-          childNodes.push(cn);
-          edges.push({ fromKey: instanceKey, toKey: cn.instanceKey });
-        }
-      }
-    }
-
-    let y;
-    if (childNodes.length === 0) {
-      y = leafY;
-      leafY += CARD_H + ROW_GAP;
-    } else {
-      y = (childNodes[0].y + childNodes[childNodes.length - 1].y) / 2;
-    }
-
-    const node = {
-      id: item.id,
-      instanceKey,
-      name: item.name,
-      type,
-      depth,
-      x: COL_X[Math.min(depth, 2)],
-      y,
-      isExpanded: isExp,
-      isShared: sharedIds.has(item.id),
-      childCount: countDescendants(item),
-      isMatch: state.query ? matchesNode(item) : false,
-    };
-    nodes.push(node);
-    return node;
-  }
-
-  // Each top-level need gets breathing room above it and a swim-lane band
-  // spanning its full vertical extent (first leaf top → last leaf bottom).
-  const bands = [];
-  hierarchy.forEach((need, i) => {
-    const before = leafY;
-    if (i > 0) leafY += NEED_GAP;
-    const startY = leafY;
-    const node = processItem(need, 0, null);
-    if (!node) { leafY = before; return; }  // filtered out by search — no gap, no band
-    bands.push({ top: startY, bottom: leafY - ROW_GAP });
-  });
-
-  return { nodes, edges, bands, totalHeight: Math.max(leafY + PAD_Y, 200) };
+function setAccent(el, needId) {
+  const color = state.needColors.get(needId);
+  if (!color) return;
+  el.style.setProperty('--accent',     color.hex);
+  el.style.setProperty('--accent-rgb', color.rgb);
 }
 
-// ── Highlight ─────────────────────────────────────────────────────────────────
+// ── Tier 0: Overview ──────────────────────────────────────────────────────────
 
-function computeHighlight(nodes, edges) {
-  const { selectedId, hoverId } = state;
-  if (!selectedId && !hoverId) return { selected: null, hovered: null };
-
-  const parentOf   = new Map(edges.map(e => [e.toKey, e.fromKey]));
-  const childrenOf = new Map();
-  for (const e of edges) {
-    if (!childrenOf.has(e.fromKey)) childrenOf.set(e.fromKey, []);
-    childrenOf.get(e.fromKey).push(e.toKey);
-  }
-
-  function ancestorKeys(instanceKey) {
-    const result = new Set();
-    let k = instanceKey;
-    while (parentOf.has(k)) { k = parentOf.get(k); result.add(k); }
-    return result;
-  }
-
-  let selected = null;
-  if (selectedId) {
-    selected = new Set();
-    for (const n of nodes.filter(n => n.id === selectedId)) {
-      selected.add(n.instanceKey);
-      for (const k of ancestorKeys(n.instanceKey)) selected.add(k);
-      for (const ck of (childrenOf.get(n.instanceKey) || [])) selected.add(ck);
-    }
-  }
-
-  let hovered = null;
-  if (hoverId && hoverId !== selectedId) {
-    hovered = new Set();
-    for (const n of nodes.filter(n => n.id === hoverId)) {
-      hovered.add(n.instanceKey);
-      for (const k of ancestorKeys(n.instanceKey)) hovered.add(k);
-    }
-  }
-
-  return { selected, hovered };
-}
-
-// ── Render ────────────────────────────────────────────────────────────────────
-
-function render() {
-  if (!state.graph) return;
-  updateMetrics();
-  renderTree();
-}
-
-function updateMetrics() {
-  const counts = { Need: 0, Subneed: 0, Task: 0 };
-  for (const n of state.graph.nodes) {
-    const t = getType(n);
-    counts[t] = (counts[t] || 0) + 1;
-  }
-  document.querySelector("#need-count").textContent    = counts.Need    || 0;
-  document.querySelector("#subneed-count").textContent = counts.Subneed || 0;
-  document.querySelector("#task-count").textContent    = counts.Task    || 0;
-}
-
-function renderTree() {
-  for (const el of [...treeCanvas.querySelectorAll(".need-band, .tree-card, .tree-sizer, .canvas-empty")]) el.remove();
+function renderOverview() {
+  state.view = 'overview';
+  state.activeNeed = null;
+  closeDrawer();
+  stageEl.innerHTML = '';
 
   if (!state.graph || !state.graph.hierarchy.length) {
-    connectorSvg.innerHTML = "";
+    showCanvasMessage('No data. Load the seed JSON to get started.');
     return;
   }
 
-  const layout = buildLayout(state.graph.hierarchy);
-  lastLayout   = layout;
-  const { nodes, edges, bands, totalHeight } = layout;
-
-  if (!nodes.length) {
-    connectorSvg.innerHTML = "";
-    showCanvasMessage("No nodes match your search.");
-    return;
+  const grid = document.createElement('div');
+  grid.className = 'concept-grid';
+  for (const need of state.graph.hierarchy) {
+    grid.appendChild(buildNeedCard(need));
   }
-
-  // Force scroll dimensions via an off-canvas 1px sizer
-  const sizer = document.createElement("div");
-  sizer.className = "tree-sizer";
-  sizer.style.cssText = `position:absolute;left:${CANVAS_W}px;top:${totalHeight}px;width:1px;height:1px;pointer-events:none`;
-  treeCanvas.appendChild(sizer);
-
-  // Swim-lane bands behind each need group (inserted before the SVG so they sit
-  // behind connectors and cards)
-  for (const band of bands) {
-    const el = document.createElement("div");
-    el.className   = "need-band";
-    el.style.left   = `${BAND_INSET}px`;
-    el.style.top    = `${band.top - BAND_PAD}px`;
-    el.style.width  = `${CANVAS_W - 2 * BAND_INSET}px`;
-    el.style.height = `${band.bottom - band.top + 2 * BAND_PAD}px`;
-    treeCanvas.insertBefore(el, connectorSvg);
-  }
-
-  // Connectors
-  connectorSvg.setAttribute("width",   CANVAS_W);
-  connectorSvg.setAttribute("height",  totalHeight);
-  connectorSvg.setAttribute("viewBox", `0 0 ${CANVAS_W} ${totalHeight}`);
-  connectorSvg.innerHTML = buildConnectorPaths(nodes, edges, null);
-
-  // Cards
-  for (const node of nodes) {
-    const card = buildCard(node);
-    treeCanvas.appendChild(card);
-  }
-
-  updateHighlight();
+  stageEl.appendChild(grid);
 }
 
-function buildConnectorPaths(nodes, edges, highlight) {
-  const byKey     = new Map(nodes.map(n => [n.instanceKey, n]));
-  const byParent  = new Map();
-  for (const e of edges) {
-    if (!byParent.has(e.fromKey)) byParent.set(e.fromKey, []);
-    byParent.get(e.fromKey).push(e.toKey);
+function buildNeedCard(need) {
+  const taskCount    = countTasks(need);
+  const subneedCount = (need.subneeds || []).length;
+
+  const card = document.createElement('div');
+  card.className = 'need-card';
+  setAccent(card, need.id);
+  card.dataset.needId = need.id;
+
+  const accent = document.createElement('div');
+  accent.className = 'need-card-accent';
+  card.appendChild(accent);
+
+  const body = document.createElement('div');
+  body.className = 'need-card-body';
+
+  const name = document.createElement('h2');
+  name.className = 'need-card-name';
+  name.textContent = need.name;
+  body.appendChild(name);
+
+  if (need.description) {
+    const desc = document.createElement('p');
+    desc.className = 'need-card-desc';
+    desc.textContent = need.description;
+    body.appendChild(desc);
   }
 
-  const radius = 6;
-  let html = "";
-  for (const [fromKey, toKeys] of byParent) {
-    const parent   = byKey.get(fromKey);
-    if (!parent) continue;
-    const children = toKeys.map(k => byKey.get(k)).filter(Boolean);
-    if (!children.length) continue;
+  const meta = document.createElement('div');
+  meta.className = 'need-card-meta';
+  meta.textContent = `${subneedCount} subneed${subneedCount !== 1 ? 's' : ''} · ${taskCount} task${taskCount !== 1 ? 's' : ''}`;
+  body.appendChild(meta);
+  card.appendChild(body);
 
-    const px     = parent.x + CARD_W;
-    const py     = parent.y + CARD_H / 2;
-    const busX   = children[0].x - STUB;
-    const firstY = children[0].y + CARD_H / 2;
-    const lastY  = children[children.length - 1].y + CARD_H / 2;
-
-    // Determine if this path is highlighted
-    const isHighlighted = highlight && (
-      highlight.selected?.has(fromKey) ||
-      children.some(c => highlight.selected?.has(c.instanceKey)) ||
-      (highlight.hovered && (highlight.hovered.has(fromKey) || children.some(c => highlight.hovered.has(c.instanceKey))))
-    );
-
-    const connClass = isHighlighted ? "connector highlighted" : "connector";
-
-    // Stub from parent to bus with rounded corner
-    html += `<path class="${connClass}" d="M ${px} ${py} L ${busX - radius} ${py} Q ${busX} ${py} ${busX} ${py < firstY ? firstY - radius : firstY + radius}" />`;
-
-    // Vertical bus spanning all children
-    if (children.length > 1) {
-      const busStartY = py < firstY ? firstY - radius : firstY + radius;
-      const busEndY = py < lastY ? lastY - radius : lastY + radius;
-      html += `<path class="${connClass}" d="M ${busX} ${busStartY} L ${busX} ${busEndY}" />`;
-    }
-
-    // Branches from bus to each child
-    for (const child of children) {
-      const cy = child.y + CARD_H / 2;
-      const busStartY = children.length === 1 ? (py < cy ? cy - radius : cy + radius) : cy;
-      html += `<path class="${connClass}" d="M ${busX} ${busStartY} Q ${busX} ${cy} ${busX + radius} ${cy} L ${child.x - radius} ${cy}" />`;
-    }
+  const hoverList = document.createElement('div');
+  hoverList.className = 'need-card-subneeds';
+  for (const s of (need.subneeds || [])) {
+    const item = document.createElement('div');
+    item.className = 'need-card-subneed';
+    item.textContent = s.name;
+    hoverList.appendChild(item);
   }
-  return html;
-}
+  card.appendChild(hoverList);
 
-function buildCard(node) {
-  const card = document.createElement("div");
-  card.className = `tree-card ${node.type.toLowerCase()}`;
-  card.style.left  = node.x + "px";
-  card.style.top   = node.y + "px";
-  card.style.width = CARD_W + "px";
-  card.dataset.id          = node.id;
-  card.dataset.instanceKey = node.instanceKey;
-  card.dataset.isMatch     = node.isMatch ? "1" : "0";
-
-  // Left accent stripe
-  const stripe = document.createElement("div");
-  stripe.className = "card-stripe";
-  card.appendChild(stripe);
-
-  // Text content
-  const content  = document.createElement("div");
-  content.className = "card-content";
-
-  const typeLabel = document.createElement("span");
-  typeLabel.className = "card-type-label";
-  typeLabel.textContent = node.type;
-
-  const name = document.createElement("span");
-  name.className = "card-name";
-  name.textContent = node.name;
-  name.title       = node.name;
-
-  content.appendChild(typeLabel);
-  content.appendChild(name);
-  card.appendChild(content);
-
-  // Right side: shared badge, child count, caret
-  const right = document.createElement("div");
-  right.className = "card-right";
-
-  if (node.isShared) {
-    const badge = document.createElement("button");
-    badge.type      = "button";
-    badge.className = "shared-badge";
-    badge.title     = "Used in multiple planning areas — click to see where";
-    badge.textContent = "shared";
-    badge.addEventListener("click", e => { e.stopPropagation(); toggleSharedPopover(node, badge); });
-    right.appendChild(badge);
-  }
-
-  if (node.type !== "Task") {
-    if (!node.isExpanded && node.childCount > 0) {
-      const count = document.createElement("span");
-      count.className   = "child-count";
-      count.textContent = node.childCount;
-      right.appendChild(count);
-    }
-    const caret = document.createElement("button");
-    caret.className         = "card-caret";
-    caret.type              = "button";
-    caret.setAttribute("aria-label", node.isExpanded ? "Collapse" : "Expand");
-    caret.textContent       = node.isExpanded ? "▾" : "▸";
-    caret.addEventListener("click", e => { e.stopPropagation(); toggleExpand(node.id); });
-    right.appendChild(caret);
-  }
-
-  card.appendChild(right);
-
-  card.addEventListener("click", () => {
-    state.selectedId = node.id;
-    updateHighlight();
-    fetchDetail(node.id);
-  });
-  card.addEventListener("mouseenter", () => { state.hoverId = node.id;  updateHighlight(); });
-  card.addEventListener("mouseleave", () => { state.hoverId = null; updateHighlight(); });
-
+  card.addEventListener('click', () => navigateToNeed(need, card));
   return card;
 }
 
-// Updates card classes without rebuilding DOM — used for hover, selection, and search highlight.
-function updateHighlight() {
-  if (!lastLayout) return;
+// ── Tier 1: Need focus ────────────────────────────────────────────────────────
 
-  if (state.query) {
-    for (const card of treeCanvas.querySelectorAll(".tree-card")) {
-      const isMatch    = card.dataset.isMatch === "1";
-      const isSelected = card.dataset.id === state.selectedId;
-      card.classList.toggle("selected",    isSelected);
-      card.classList.toggle("highlighted", isMatch && !isSelected);
-      card.classList.toggle("dimmed",      !isMatch && !isSelected);
-    }
-    return;
+function navigateToNeed(need, fromCard) {
+  const fromRect = (fromCard && !prefersReducedMotion())
+    ? fromCard.getBoundingClientRect()
+    : null;
+
+  state.view = 'need';
+  state.activeNeed = need;
+  stageEl.innerHTML = '';
+
+  // Header band
+  const header = document.createElement('div');
+  header.className = 'board-header';
+  setAccent(header, need.id);
+
+  const nav = document.createElement('nav');
+  nav.className = 'board-breadcrumb';
+
+  const backBtn = document.createElement('button');
+  backBtn.className = 'breadcrumb-back';
+  backBtn.textContent = 'All needs';
+  backBtn.addEventListener('click', navigateBack);
+
+  const sep = document.createElement('span');
+  sep.className = 'breadcrumb-sep';
+  sep.textContent = '›';
+
+  const current = document.createElement('span');
+  current.className = 'breadcrumb-current';
+  current.textContent = need.name;
+
+  const switcherBtn = document.createElement('button');
+  switcherBtn.className = 'need-switcher-btn';
+  switcherBtn.textContent = '▾';
+  switcherBtn.setAttribute('aria-label', 'Switch need');
+  switcherBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    showNeedSwitcher(switcherBtn);
+  });
+
+  nav.append(backBtn, sep, current, switcherBtn);
+  header.appendChild(nav);
+
+  const headerText = document.createElement('div');
+  const h1 = document.createElement('h1');
+  h1.className = 'board-need-name';
+  h1.textContent = need.name;
+  headerText.appendChild(h1);
+  if (need.description) {
+    const desc = document.createElement('p');
+    desc.className = 'board-need-desc';
+    desc.textContent = need.description;
+    headerText.appendChild(desc);
   }
+  header.appendChild(headerText);
+  stageEl.appendChild(header);
 
-  const { nodes, edges } = lastLayout;
-  const { selected, hovered } = computeHighlight(nodes, edges);
-  const isDimming = selected !== null;
+  // Board
+  const board = document.createElement('div');
+  board.className = 'board';
 
-  // Rebuild connectors with highlight info
-  if (selected || hovered) {
-    connectorSvg.innerHTML = buildConnectorPaths(nodes, edges, { selected, hovered });
-  } else {
-    connectorSvg.innerHTML = buildConnectorPaths(nodes, edges, null);
+  const directTasks = need.tasks || [];
+  if (directTasks.length) {
+    board.appendChild(buildSubneedCol(
+      { name: 'Direct Tasks', description: '', tasks: directTasks },
+      need.id
+    ));
   }
-
-  for (const card of treeCanvas.querySelectorAll(".tree-card")) {
-    const instanceKey = card.dataset.instanceKey;
-    const nodeId      = card.dataset.id;
-    const isSelected  = nodeId === state.selectedId;
-    const inSelected  = selected?.has(instanceKey);
-    const inHovered   = hovered?.has(instanceKey);
-    const isHighlighted = (inSelected || inHovered) && !isSelected;
-    const isDimmed      = isDimming && !inSelected && !isSelected;
-
-    card.classList.toggle("selected",    isSelected);
-    card.classList.toggle("highlighted", isHighlighted);
-    card.classList.toggle("dimmed",      isDimmed);
+  for (const sub of (need.subneeds || [])) {
+    board.appendChild(buildSubneedCol(sub, need.id));
   }
-}
+  stageEl.appendChild(board);
 
-function renderDetailList(selector, items) {
-  const list = document.querySelector(selector);
-  list.textContent = "";
-  if (!items || !items.length) {
-    const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = "None";
-    list.appendChild(li);
-    return;
-  }
-  for (const item of [...items].sort((a, b) => a.name.localeCompare(b.name))) {
-    const li  = document.createElement("li");
-    li.className = "detail-item";
-    const nm  = document.createElement("span");
-    nm.textContent = item.name;
-    const rel = document.createElement("span");
-    rel.className  = "detail-item-rel";
-    rel.textContent = item.relationship;
-    li.appendChild(nm);
-    li.appendChild(rel);
-    list.appendChild(li);
-  }
-}
+  // ── FLIP animation ────────────────────────────────────────────────────────
+  if (fromRect) {
+    const toRect = header.getBoundingClientRect();
+    const dx = fromRect.left - toRect.left;
+    const dy = fromRect.top  - toRect.top;
+    const sx = fromRect.width  / Math.max(toRect.width,  1);
+    const sy = fromRect.height / Math.max(toRect.height, 1);
 
-function toggleExpand(id) {
-  // FLIP: capture old positions
-  const oldLayout = new Map();
-  for (const card of treeCanvas.querySelectorAll(".tree-card")) {
-    oldLayout.set(card.dataset.instanceKey, {
-      x: parseFloat(card.style.left),
-      y: parseFloat(card.style.top),
+    header.style.transformOrigin = 'top left';
+    header.style.transform = `translate(${dx}px,${dy}px) scale(${sx},${sy})`;
+    header.style.opacity = '0.5';
+    void header.offsetWidth;
+    header.style.transition = 'transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94), opacity 0.2s ease';
+    header.style.transform = '';
+    header.style.opacity   = '';
+    header.addEventListener('transitionend', () => {
+      header.style.transition = header.style.transformOrigin = '';
+    }, { once: true });
+
+    const cols = board.querySelectorAll('.subneed-col');
+    cols.forEach((col, i) => {
+      col.style.opacity   = '0';
+      col.style.transform = 'translateY(10px)';
+      void col.offsetWidth;
+      const delay = `${0.08 + i * 0.04}s`;
+      col.style.transition = `opacity 0.22s ease ${delay}, transform 0.22s ease ${delay}`;
+      col.style.opacity   = '';
+      col.style.transform = '';
+      col.addEventListener('transitionend', () => {
+        col.style.transition = col.style.opacity = col.style.transform = '';
+      }, { once: true });
     });
   }
+}
 
-  // Toggle and rebuild
-  if (state.expanded.has(id)) state.expanded.delete(id);
-  else state.expanded.add(id);
-  renderTree();
+function navigateBack() {
+  if (prefersReducedMotion()) { renderOverview(); return; }
 
-  // FLIP: invert (apply transform to old positions) and then play (animate back)
-  for (const card of treeCanvas.querySelectorAll(".tree-card")) {
-    const oldPos = oldLayout.get(card.dataset.instanceKey);
-    if (oldPos) {
-      const newX = parseFloat(card.style.left);
-      const newY = parseFloat(card.style.top);
-      card.style.transform = `translate(${oldPos.x - newX}px, ${oldPos.y - newY}px)`;
-    } else {
-      card.style.opacity = '0';
+  stageEl.style.opacity   = '0';
+  stageEl.style.transition = 'opacity 0.18s ease';
+  stageEl.addEventListener('transitionend', () => {
+    stageEl.style.transition = stageEl.style.opacity = '';
+    renderOverview();
+    stageEl.style.opacity   = '0';
+    void stageEl.offsetWidth;
+    stageEl.style.transition = 'opacity 0.18s ease';
+    stageEl.style.opacity   = '';
+    stageEl.addEventListener('transitionend', () => {
+      stageEl.style.transition = '';
+    }, { once: true });
+  }, { once: true });
+}
+
+function buildSubneedCol(subneed, needId) {
+  const col = document.createElement('div');
+  col.className = 'subneed-col';
+
+  const hdr = document.createElement('div');
+  hdr.className = 'col-header';
+  setAccent(hdr, needId);
+
+  const colName = document.createElement('div');
+  colName.className = 'col-name';
+  colName.textContent = subneed.name;
+  hdr.appendChild(colName);
+
+  if (subneed.description) {
+    const colDesc = document.createElement('div');
+    colDesc.className = 'col-desc';
+    colDesc.textContent = subneed.description;
+    hdr.appendChild(colDesc);
+  }
+
+  const colCount = document.createElement('div');
+  colCount.className = 'col-count';
+  const n = (subneed.tasks || []).length;
+  colCount.textContent = `${n} task${n !== 1 ? 's' : ''}`;
+  hdr.appendChild(colCount);
+  col.appendChild(hdr);
+
+  const cards = document.createElement('div');
+  cards.className = 'col-cards';
+  for (const task of (subneed.tasks || [])) {
+    cards.appendChild(buildTaskCard(task));
+  }
+  col.appendChild(cards);
+  return col;
+}
+
+function buildTaskCard(task) {
+  const card = document.createElement('div');
+  card.className = 'task-card';
+  card.dataset.id = task.id;
+  if (task.id === state.selectedId) card.classList.add('selected');
+
+  const name = document.createElement('div');
+  name.className = 'task-name';
+  name.textContent = task.name;
+  card.appendChild(name);
+
+  if (sharedIds.has(task.id)) {
+    const others = getOtherNeedsForTask(task.id);
+    if (others.length) {
+      const dots = document.createElement('div');
+      dots.className = 'reuse-dots';
+      const names = others.map(n => n.name).join(', ');
+      dots.title = `Also in: ${names}`;
+      for (const need of others) {
+        const dot = document.createElement('span');
+        dot.className = 'reuse-dot';
+        const color = state.needColors.get(need.id);
+        if (color) dot.style.background = color.hex;
+        dot.title = need.name;
+        dots.appendChild(dot);
+      }
+      card.appendChild(dots);
     }
   }
 
-  // Force reflow, then animate to final state
-  void treeCanvas.offsetHeight;
-  for (const card of treeCanvas.querySelectorAll(".tree-card")) {
-    card.style.transform = '';
-    card.style.opacity = '';
+  card.addEventListener('click', e => { e.stopPropagation(); selectItem(task.id); });
+  return card;
+}
+
+// ── Selection & Drawer ────────────────────────────────────────────────────────
+
+function selectItem(id) {
+  state.selectedId = id;
+  for (const card of document.querySelectorAll('.task-card')) {
+    card.classList.toggle('selected', card.dataset.id === id);
+  }
+  openDrawer(id);
+}
+
+function openDrawer(id) {
+  drawerEl.classList.add('open');
+  renderDrawer(id);
+}
+
+function closeDrawer() {
+  drawerEl.classList.remove('open');
+  state.selectedId = null;
+  for (const card of document.querySelectorAll('.task-card')) {
+    card.classList.remove('selected');
   }
 }
 
-// ── Shared-node "other parents" popover ─────────────────────────────────────────
+function renderDrawer(id) {
+  const node = state.graph?.nodes.find(n => n.id === id);
+  drawerEl.innerHTML = '';
+  if (!node) return;
 
-// The immediate parents of this node, by id, excluding the one this instance sits
-// under. instanceKey is the reversed id-path joined by "::", so segment [1] is the
-// current parent's id (undefined for a root).
-function otherParents(node) {
-  const byId = new Map(state.graph.nodes.map(n => [n.id, n]));
-  const currentParentId = node.instanceKey.split("::")[1];
-  const seen = new Set();
-  const out  = [];
-  for (const r of state.graph.relationships) {
-    if (r.target !== node.id) continue;
-    const pid = r.source;
-    if (pid === currentParentId || seen.has(pid)) continue;
-    seen.add(pid);
-    const pnode = byId.get(pid);
-    out.push({ id: pid, name: pnode?.name ?? pid, type: pnode ? getType(pnode) : "" });
+  const type = getType(node);
+
+  const inner = document.createElement('div');
+  inner.className = 'drawer-inner';
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.className = 'drawer-header';
+
+  const top = document.createElement('div');
+  top.className = 'drawer-header-top';
+
+  const pill = document.createElement('span');
+  pill.className = 'pill';
+  pill.textContent = type;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'drawer-close';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', closeDrawer);
+
+  top.append(pill, closeBtn);
+  hdr.appendChild(top);
+
+  const title = document.createElement('h2');
+  title.className = 'drawer-title';
+  title.textContent = node.name;
+  hdr.appendChild(title);
+
+  if (node.description) {
+    const desc = document.createElement('p');
+    desc.className = 'drawer-desc';
+    desc.textContent = node.description;
+    hdr.appendChild(desc);
   }
-  return out;
-}
 
-// First root→target id-path through the hierarchy, or null.
-function findIdPath(targetId) {
-  let found = null;
-  function walk(item, path) {
-    if (found) return;
-    const next = [...path, item.id];
-    if (item.id === targetId) { found = next; return; }
-    for (const c of (item.subneeds || [])) walk(c, next);
-    for (const t of (item.tasks    || [])) walk(t, next);
+  inner.appendChild(hdr);
+
+  // Body
+  const body = document.createElement('div');
+  body.className = 'drawer-body';
+
+  if (type === 'Task') {
+    const homes = getTaskHomes(id);
+    const sec = document.createElement('div');
+    sec.className = 'drawer-section';
+
+    const label = document.createElement('div');
+    label.className = 'drawer-section-label';
+    label.textContent = 'Where it lives';
+    sec.appendChild(label);
+
+    const ul = document.createElement('ul');
+    ul.className = 'drawer-homes';
+
+    for (const home of homes) {
+      const color = state.needColors.get(home.needId);
+      const li = document.createElement('li');
+      li.className = 'drawer-home-item';
+
+      const dot = document.createElement('span');
+      dot.className = 'drawer-home-dot';
+      if (color) dot.style.background = color.hex;
+
+      const needName = document.createElement('span');
+      needName.className = 'drawer-home-need';
+      needName.textContent = home.needName;
+
+      const jump = document.createElement('button');
+      jump.className = 'drawer-jump';
+      jump.textContent = 'Go →';
+      const { needId } = home;
+      jump.addEventListener('click', () => jumpToNeed(needId, id));
+
+      li.append(dot, needName, jump);
+
+      if (home.subneedName) {
+        const sub = document.createElement('span');
+        sub.className = 'drawer-home-subneed';
+        sub.textContent = `› ${home.subneedName}`;
+        li.appendChild(sub);
+      }
+
+      ul.appendChild(li);
+    }
+
+    sec.appendChild(ul);
+    body.appendChild(sec);
+  } else {
+    // Subneed/Need: show parent info
+    const parentRels = (state.graph?.relationships || []).filter(r => r.target === id);
+    if (parentRels.length) {
+      const sec = document.createElement('div');
+      sec.className = 'drawer-section';
+
+      const label = document.createElement('div');
+      label.className = 'drawer-section-label';
+      label.textContent = 'Parent';
+      sec.appendChild(label);
+
+      const ul = document.createElement('ul');
+      for (const r of parentRels) {
+        const parent = state.graph.nodes.find(n => n.id === r.source);
+        if (!parent) continue;
+        const li = document.createElement('li');
+        li.className = 'detail-item';
+        const nm  = document.createElement('span');
+        nm.textContent = parent.name;
+        const rel = document.createElement('span');
+        rel.className = 'detail-item-rel';
+        rel.textContent = r.type;
+        li.append(nm, rel);
+        ul.appendChild(li);
+      }
+      sec.appendChild(ul);
+      body.appendChild(sec);
+    }
   }
-  for (const root of state.graph.hierarchy) walk(root, []);
-  return found;
+
+  inner.appendChild(body);
+  drawerEl.appendChild(inner);
 }
 
-// Reveal the shared node where it lives under `parentId`: expand that branch,
-// select the node, and scroll its instance into view.
-function jumpToParent(sharedId, parentId) {
-  const path = findIdPath(parentId);
-  if (!path) return;
-  for (const pid of path) state.expanded.add(pid);
-  state.selectedId = sharedId;
-  renderTree();
-  fetchDetail(sharedId);
-  const parentKey = [...path].reverse().join("::");
-  const targetKey = `${sharedId}::${parentKey}`;
-  const card = treeCanvas.querySelector(`[data-instance-key="${CSS.escape(targetKey)}"]`);
-  if (card) {
-    card.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-    card.classList.add("pulse");
-    setTimeout(() => card.classList.remove("pulse"), 600);
+function jumpToNeed(needId, taskId) {
+  const need = state.graph.hierarchy.find(n => n.id === needId);
+  if (!need) return;
+  closeDrawer();
+  navigateToNeed(need, null);
+  requestAnimationFrame(() => {
+    selectItem(taskId);
+    const card = document.querySelector(`.task-card[data-id="${CSS.escape(taskId)}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.add('pulse');
+      setTimeout(() => card.classList.remove('pulse'), 600);
+    }
+  });
+}
+
+// ── Need switcher ─────────────────────────────────────────────────────────────
+
+function showNeedSwitcher(anchorEl) {
+  closePopover();
+  const pop = document.createElement('div');
+  pop.className = 'need-switcher-popover';
+
+  for (const need of state.graph.hierarchy) {
+    const btn = document.createElement('button');
+    btn.className = 'switcher-item';
+    setAccent(btn, need.id);
+    if (need.id === state.activeNeed?.id) btn.classList.add('active');
+
+    const dot = document.createElement('span');
+    dot.className = 'switcher-dot';
+    const label = document.createElement('span');
+    label.textContent = need.name;
+    btn.append(dot, label);
+    btn.addEventListener('click', () => { closePopover(); navigateToNeed(need, null); });
+    pop.appendChild(btn);
   }
-}
 
-function closeSharedPopover() {
-  if (openPopover) { openPopover.remove(); openPopover = null; }
-}
+  document.body.appendChild(pop);
 
-function positionPopover(pop, anchorEl) {
-  const r = anchorEl.getBoundingClientRect();
+  const r  = anchorEl.getBoundingClientRect();
   pop.style.top  = `${r.bottom + 6}px`;
   pop.style.left = `${r.left}px`;
   const pr = pop.getBoundingClientRect();
   if (pr.right > window.innerWidth - 8)
     pop.style.left = `${Math.max(8, window.innerWidth - 8 - pr.width)}px`;
-  if (pr.bottom > window.innerHeight - 8)
-    pop.style.top = `${Math.max(8, r.top - 6 - pr.height)}px`;
+
+  openPopover = pop;
 }
 
-function toggleSharedPopover(node, anchorEl) {
-  const wasOpenForThis = openPopover && openPopover.dataset.for === node.instanceKey;
-  closeSharedPopover();
-  if (wasOpenForThis) return;
+function closePopover() {
+  if (openPopover) { openPopover.remove(); openPopover = null; }
+}
 
-  const others = otherParents(node);
-  const pop = document.createElement("div");
-  pop.className   = "shared-popover";
-  pop.dataset.for = node.instanceKey;
+// ── Search (command palette) ──────────────────────────────────────────────────
 
-  const head = document.createElement("div");
-  head.className   = "shared-popover-head";
-  head.textContent = others.length ? "Also appears under" : "No other parents";
-  pop.appendChild(head);
+function openSearch() {
+  searchOverlay.classList.remove('hidden');
+  searchInput.value = '';
+  searchResults.innerHTML = '';
+  searchInput.focus();
+}
 
-  if (others.length) {
-    const ul = document.createElement("ul");
-    ul.className = "shared-popover-list";
-    for (const p of others) {
-      const li = document.createElement("li");
-      li.className = "shared-popover-item";
-      li.tabIndex  = 0;
-      const nm = document.createElement("span");
-      nm.className   = "shared-popover-name";
-      nm.textContent = p.name;
-      const ty = document.createElement("span");
-      ty.className   = "shared-popover-type";
-      ty.textContent = p.type;
-      li.append(nm, ty);
-      const go = () => { closeSharedPopover(); jumpToParent(node.id, p.id); };
-      li.addEventListener("click", e => { e.stopPropagation(); go(); });
-      li.addEventListener("keydown", e => { if (e.key === "Enter") { e.stopPropagation(); go(); } });
-      ul.appendChild(li);
+function closeSearch() {
+  searchOverlay.classList.add('hidden');
+}
+
+function runSearch(query) {
+  const q = query.trim().toLowerCase();
+  searchResults.innerHTML = '';
+  if (!q || !state.graph) return;
+
+  const needs    = [];
+  const subneeds = [];
+  const tasks    = [];
+  const seenTask = new Set();
+
+  for (const need of state.graph.hierarchy) {
+    if (need.name.toLowerCase().includes(q))
+      needs.push({ node: need, needId: need.id, needName: null });
+
+    for (const sub of (need.subneeds || [])) {
+      if (sub.name.toLowerCase().includes(q))
+        subneeds.push({ node: sub, needId: need.id, needName: need.name });
+
+      for (const task of (sub.tasks || [])) {
+        if (task.name.toLowerCase().includes(q) && !seenTask.has(task.id)) {
+          seenTask.add(task.id);
+          tasks.push({ node: task, needId: need.id, needName: need.name });
+        }
+      }
     }
-    pop.appendChild(ul);
+
+    for (const task of (need.tasks || [])) {
+      if (task.name.toLowerCase().includes(q) && !seenTask.has(task.id)) {
+        seenTask.add(task.id);
+        tasks.push({ node: task, needId: need.id, needName: need.name });
+      }
+    }
   }
 
-  document.body.appendChild(pop);
-  positionPopover(pop, anchorEl);
-  openPopover = pop;
+  const groups = [
+    { label: 'Needs',    items: needs    },
+    { label: 'Subneeds', items: subneeds },
+    { label: 'Tasks',    items: tasks    },
+  ];
+
+  let any = false;
+  for (const { label, items } of groups) {
+    if (!items.length) continue;
+    any = true;
+    const groupEl = document.createElement('div');
+    groupEl.className = 'search-group';
+
+    const groupLabel = document.createElement('div');
+    groupLabel.className = 'search-group-label';
+    groupLabel.textContent = label;
+    groupEl.appendChild(groupLabel);
+
+    for (const item of items) {
+      const row = document.createElement('button');
+      row.className = 'search-result-item';
+
+      const dot = document.createElement('span');
+      dot.className = 'search-result-dot';
+      const color = state.needColors.get(item.needId);
+      if (color) dot.style.background = color.hex;
+
+      const name = document.createElement('span');
+      name.className = 'search-result-name';
+      name.textContent = item.node.name;
+
+      row.append(dot, name);
+
+      if (item.needName) {
+        const meta = document.createElement('span');
+        meta.className = 'search-result-meta';
+        meta.textContent = item.needName;
+        row.appendChild(meta);
+      }
+
+      row.addEventListener('click', () => {
+        closeSearch();
+        const need = state.graph.hierarchy.find(n => n.id === item.needId);
+        if (!need) return;
+        if (label === 'Needs') {
+          navigateToNeed(need, null);
+        } else {
+          navigateToNeed(need, null);
+          requestAnimationFrame(() => {
+            if (label === 'Tasks') selectItem(item.node.id);
+            const card = document.querySelector(`[data-id="${CSS.escape(item.node.id)}"]`);
+            if (card) {
+              card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              card.classList.add('pulse');
+              setTimeout(() => card.classList.remove('pulse'), 600);
+            }
+          });
+        }
+      });
+
+      groupEl.appendChild(row);
+    }
+    searchResults.appendChild(groupEl);
+  }
+
+  if (!any) {
+    searchResults.innerHTML = '<div class="search-empty">No results</div>';
+  }
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
-searchEl.addEventListener("input", e => {
-  state.query = e.target.value.trim().toLowerCase();
-  render();
+document.querySelector('#search-trigger').addEventListener('click', openSearch);
+document.querySelector('#search-backdrop').addEventListener('click', closeSearch);
+searchInput.addEventListener('input', e => runSearch(e.target.value));
+
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    openSearch();
+    return;
+  }
+  if (e.key === 'Escape') {
+    if (!searchOverlay.classList.contains('hidden')) { closeSearch(); return; }
+    if (openPopover) { closePopover(); return; }
+    closeDrawer();
+  }
 });
 
-// Clear the selection by clicking empty canvas or pressing Escape.
-function clearSelection() {
-  if (!state.selectedId) return;
-  state.selectedId = null;
-  updateHighlight();
-}
-
-treeCanvas.addEventListener("click", e => {
-  if (!e.target.closest(".tree-card")) clearSelection();
+document.querySelector('#overflow-btn').addEventListener('click', e => {
+  e.stopPropagation();
+  overflowMenu.classList.toggle('hidden');
 });
 
-document.addEventListener("keydown", e => {
-  if (e.key !== "Escape") return;
-  if (openPopover) closeSharedPopover();
-  else clearSelection();
+document.addEventListener('click', e => {
+  if (openPopover && !openPopover.contains(e.target) && !e.target.closest('.need-switcher-btn'))
+    closePopover();
+  if (!overflowMenu.classList.contains('hidden') &&
+      !overflowMenu.contains(e.target) &&
+      e.target !== document.querySelector('#overflow-btn'))
+    overflowMenu.classList.add('hidden');
 });
 
-document.addEventListener("click", e => {
-  if (openPopover && !openPopover.contains(e.target) && !e.target.closest(".shared-badge"))
-    closeSharedPopover();
+stageEl.addEventListener('click', e => {
+  if (!e.target.closest('.task-card') && !e.target.closest('.need-card'))
+    closeDrawer();
 });
 
-document.querySelector("#load-json").addEventListener("click",  loadJson);
-document.querySelector("#export-json").addEventListener("click", exportJson);
-document.querySelector("#wipe-graph").addEventListener("click",  wipeGraph);
+document.querySelector('#load-json').addEventListener('click',  () => { overflowMenu.classList.add('hidden'); loadJson(); });
+document.querySelector('#export-json').addEventListener('click', () => { overflowMenu.classList.add('hidden'); exportJson(); });
+document.querySelector('#wipe-graph').addEventListener('click',  () => { overflowMenu.classList.add('hidden'); wipeGraph(); });
 
 loadGraph();
