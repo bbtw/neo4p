@@ -232,6 +232,8 @@ function renderOverview() {
 function buildNeedColumn(need) {
   const subneedCount = (need.subneeds || []).length;
   const taskCount    = countTasks(need);
+  const subneeds     = need.subneeds || [];
+  const maxTasks     = Math.max(...subneeds.map(s => (s.tasks || []).length), 1);
 
   const col = document.createElement('div');
   col.className = 'subneed-col';
@@ -262,23 +264,29 @@ function buildNeedColumn(need) {
 
   const rows = document.createElement('div');
   rows.className = 'col-cards';
-  const topSubneeds = [...(need.subneeds || [])]
-    .sort((a, b) => (b.tasks || []).length - (a.tasks || []).length)
-    .slice(0, 3);
-  for (const sub of topSubneeds) {
-    const n    = (sub.tasks || []).length;
-    const row  = document.createElement('div');
+  for (const sub of subneeds) {
+    const n   = (sub.tasks || []).length;
+    const pct = Math.round((n / maxTasks) * 100);
+
+    const row = document.createElement('div');
     row.className = 'overview-subneed-row';
 
-    const nm   = document.createElement('span');
+    const nm = document.createElement('span');
     nm.className = 'overview-subneed-name';
     nm.textContent = sub.name;
 
-    const ct   = document.createElement('span');
+    const barWrap = document.createElement('span');
+    barWrap.className = 'overview-bar-wrap';
+    const bar = document.createElement('span');
+    bar.className = 'overview-bar';
+    bar.style.width = `${pct}%`;
+    barWrap.appendChild(bar);
+
+    const ct = document.createElement('span');
     ct.className = 'overview-subneed-count';
     ct.textContent = n;
 
-    row.append(nm, ct);
+    row.append(nm, barWrap, ct);
     rows.appendChild(row);
   }
   col.appendChild(rows);
@@ -309,20 +317,21 @@ function buildSummaryCard() {
   const cards = document.createElement('div');
   cards.className = 'col-cards';
 
-  for (const [label, count] of [
-    ['Subneeds',     subneedCount],
-    ['Tasks',        taskCount],
-    ['Shared tasks', sharedIds.size],
+  for (const [label, count, accent] of [
+    ['Needs',        hierarchy.length, false],
+    ['Subneeds',     subneedCount,     false],
+    ['Tasks',        taskCount,        false],
+    ['Shared tasks', sharedIds.size,   true],
   ]) {
     const row = document.createElement('div');
-    row.className = 'overview-subneed-row';
-    const nm = document.createElement('span');
-    nm.className = 'overview-subneed-name';
-    nm.textContent = label;
-    const ct = document.createElement('span');
-    ct.className = 'overview-summary-count';
-    ct.textContent = count;
-    row.append(nm, ct);
+    row.className = 'overview-stat-row';
+    const lbl = document.createElement('span');
+    lbl.className = 'overview-stat-label';
+    lbl.textContent = label;
+    const num = document.createElement('span');
+    num.className = accent ? 'overview-stat-num overview-stat-num--accent' : 'overview-stat-num';
+    num.textContent = count;
+    row.append(lbl, num);
     cards.appendChild(row);
   }
 
@@ -905,6 +914,7 @@ stageEl.addEventListener('click', e => {
   if (!e.target.closest('.task-card') && !e.target.closest('.need-card'))
     closeDrawer();
 });
+
 
 document.querySelector('#load-json').addEventListener('click',  () => { overflowMenu.classList.add('hidden'); loadJson(); });
 document.querySelector('#export-json').addEventListener('click', () => { overflowMenu.classList.add('hidden'); exportJson(); });
