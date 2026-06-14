@@ -7,6 +7,9 @@ const COL_GAP = 56;   // horizontal gap between right edge of parent and left ed
 const PAD_X   = 24;
 const PAD_Y   = 20;
 const STUB    = 20;   // horizontal stub from parent right to vertical bus
+const NEED_GAP   = 32;  // extra vertical gap between top-level need groups
+const BAND_PAD   = 8;   // vertical padding of a need's swim-lane band around its cards
+const BAND_INSET = 10;  // horizontal inset of the swim-lane band from the canvas edges
 
 const COL_X = [PAD_X, PAD_X + CARD_W + COL_GAP, PAD_X + 2 * (CARD_W + COL_GAP)];
 const CANVAS_W = COL_X[2] + CARD_W + PAD_X;
@@ -179,7 +182,7 @@ function showToast(msg) {
 
 function showCanvasMessage(msg) {
   connectorSvg.innerHTML = "";
-  for (const el of [...treeCanvas.querySelectorAll(".tree-card, .tree-sizer, .canvas-empty")]) el.remove();
+  for (const el of [...treeCanvas.querySelectorAll(".need-band, .tree-card, .tree-sizer, .canvas-empty")]) el.remove();
   const p = document.createElement("p");
   p.className = "canvas-empty";
   p.textContent = msg;
@@ -251,11 +254,19 @@ function buildLayout(hierarchy) {
     return node;
   }
 
-  for (const need of hierarchy) {
-    processItem(need, 0, null);
-  }
+  // Each top-level need gets breathing room above it and a swim-lane band
+  // spanning its full vertical extent (first leaf top → last leaf bottom).
+  const bands = [];
+  hierarchy.forEach((need, i) => {
+    const before = leafY;
+    if (i > 0) leafY += NEED_GAP;
+    const startY = leafY;
+    const node = processItem(need, 0, null);
+    if (!node) { leafY = before; return; }  // filtered out by search — no gap, no band
+    bands.push({ top: startY, bottom: leafY - ROW_GAP });
+  });
 
-  return { nodes, edges, totalHeight: Math.max(leafY + PAD_Y, 200) };
+  return { nodes, edges, bands, totalHeight: Math.max(leafY + PAD_Y, 200) };
 }
 
 // ── Highlight ─────────────────────────────────────────────────────────────────
@@ -320,7 +331,7 @@ function updateMetrics() {
 }
 
 function renderTree() {
-  for (const el of [...treeCanvas.querySelectorAll(".tree-card, .tree-sizer, .canvas-empty")]) el.remove();
+  for (const el of [...treeCanvas.querySelectorAll(".need-band, .tree-card, .tree-sizer, .canvas-empty")]) el.remove();
 
   if (!state.graph || !state.graph.hierarchy.length) {
     connectorSvg.innerHTML = "";
@@ -329,7 +340,7 @@ function renderTree() {
 
   const layout = buildLayout(state.graph.hierarchy);
   lastLayout   = layout;
-  const { nodes, edges, totalHeight } = layout;
+  const { nodes, edges, bands, totalHeight } = layout;
 
   if (!nodes.length) {
     connectorSvg.innerHTML = "";
@@ -342,6 +353,18 @@ function renderTree() {
   sizer.className = "tree-sizer";
   sizer.style.cssText = `position:absolute;left:${CANVAS_W}px;top:${totalHeight}px;width:1px;height:1px;pointer-events:none`;
   treeCanvas.appendChild(sizer);
+
+  // Swim-lane bands behind each need group (inserted before the SVG so they sit
+  // behind connectors and cards)
+  for (const band of bands) {
+    const el = document.createElement("div");
+    el.className   = "need-band";
+    el.style.left   = `${BAND_INSET}px`;
+    el.style.top    = `${band.top - BAND_PAD}px`;
+    el.style.width  = `${CANVAS_W - 2 * BAND_INSET}px`;
+    el.style.height = `${band.bottom - band.top + 2 * BAND_PAD}px`;
+    treeCanvas.insertBefore(el, connectorSvg);
+  }
 
   // Connectors
   connectorSvg.setAttribute("width",   CANVAS_W);

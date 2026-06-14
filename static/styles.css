@@ -121,6 +121,17 @@ body { margin: 0; }
   overflow: visible;
 }
 
+/* ── Need swim-lane bands ── */
+
+.need-band {
+  position: absolute;
+  z-index: 0;
+  background: #f7f9fb;
+  border: 1px solid #edf1f6;
+  border-radius: 10px;
+  pointer-events: none;
+}
+
 .connector {
   fill: none;
   stroke: #cbd5e1;
