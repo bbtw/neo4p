@@ -116,13 +116,46 @@ kbd {
   background: #f1f3f5;
 }
 
-/* ── Tier 0: Concept grid ── */
+/* ── Overview centering wrapper ── */
+
+.overview-wrapper {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Tier 0: Concept grid (fallback for N ≠ 7) ── */
 
 .concept-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
   gap: 16px;
   padding: 24px;
+  width: 100%;
+}
+
+/* ── Tier 0: Diamond grid (N = 7, 2+3+2) ── */
+
+.diamond-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 24px;
+}
+
+.diamond-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.diamond-row .need-card {
+  width: 240px;
+  flex-shrink: 0;
 }
 
 /* ── Need card ── */
@@ -176,11 +209,6 @@ kbd {
   padding: 0 16px 14px;
   border-top: 1px solid #f1f5f9;
   margin-top: 4px;
-  display: none;
-}
-
-.need-card:hover .need-card-subneeds {
-  display: block;
 }
 
 .need-card-subneed {
@@ -202,6 +230,13 @@ kbd {
   background: var(--accent);
   transform: translateY(-50%);
   opacity: 0.55;
+}
+
+.need-card-more {
+  font-size: 11px;
+  color: #cbd5e1;
+  padding: 3px 0 0 14px;
+  line-height: 1.4;
 }
 
 /* ── Tier 1: Board header ── */
@@ -296,7 +331,7 @@ kbd {
 .col-header {
   padding: 12px 14px 10px;
   border-bottom: 3px solid var(--accent);
-  background: rgba(var(--accent-rgb), 0.04);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .col-name {
@@ -338,18 +373,26 @@ kbd {
   padding: 9px 11px;
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s, box-shadow 0.1s;
+  box-shadow: inset 3px 0 0 rgba(var(--accent-rgb), 0.45);
 }
 
 .task-card:hover {
   background: #fff;
   border-color: #a0aec0;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
+  box-shadow: inset 3px 0 0 rgba(var(--accent-rgb), 0.45), 0 1px 4px rgba(0, 0, 0, 0.07);
 }
 
 .task-card.selected {
   border-color: #2563eb;
   background: #fff;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+  box-shadow: inset 3px 0 0 rgba(var(--accent-rgb), 0.7), 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+/* ── Direct tasks column ── */
+
+.subneed-col.direct {
+  --accent: #94a3b8;
+  --accent-rgb: 148,163,184;
 }
 
 .task-name {
@@ -359,23 +402,77 @@ kbd {
   line-height: 1.4;
 }
 
+/* ── Multi-parent stacked card ── */
+
+.task-card.multi-parent {
+  box-shadow:
+    inset 3px 0 0 rgba(var(--accent-rgb), 0.45),
+    4px 2px 0 0 #c8d4de,
+    7px 3px 0 0 #b8c6d4;
+}
+
+.task-card.multi-parent:hover {
+  background: #fff;
+  border-color: #a0aec0;
+  box-shadow:
+    inset 3px 0 0 rgba(var(--accent-rgb), 0.45),
+    0 1px 4px rgba(0, 0, 0, 0.07),
+    4px 2px 0 0 #c8d4de,
+    7px 3px 0 0 #b8c6d4;
+}
+
+.task-card.multi-parent.selected {
+  border-color: #2563eb;
+  background: #fff;
+  box-shadow:
+    inset 3px 0 0 rgba(var(--accent-rgb), 0.7),
+    0 0 0 2px rgba(37, 99, 235, 0.12),
+    4px 2px 0 0 #c8d4de,
+    7px 3px 0 0 #b8c6d4;
+}
+
 /* ── Reuse dots ── */
 
 .reuse-dots {
   display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid #e8edf2;
+}
+
+.reuse-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 1px;
+  flex-shrink: 0;
+}
+
+.reuse-entry {
+  display: flex;
+  align-items: center;
   gap: 4px;
-  margin-top: 7px;
-  flex-wrap: wrap;
 }
 
 .reuse-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  display: inline-block;
-  opacity: 0.8;
-  cursor: help;
   flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.reuse-name {
+  font-size: 10px;
+  font-weight: 500;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Detail drawer ── */
@@ -485,6 +582,16 @@ kbd {
   border: 1px solid #e2e6ed;
   border-radius: 7px;
   background: #f8fafc;
+}
+
+.drawer-home-item.current {
+  border-style: dashed;
+  border-color: #c8d0da;
+  background: #f1f5f9;
+}
+
+.drawer-home-item.current .drawer-home-need {
+  color: #94a3b8;
 }
 
 .drawer-home-dot {

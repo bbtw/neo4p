@@ -207,6 +207,8 @@ function setAccent(el, needId) {
 
 // ── Tier 0: Overview ──────────────────────────────────────────────────────────
 
+const DIAMOND_ROWS = [2, 3, 2]; // bespoke to N=7
+
 function renderOverview() {
   state.view = 'overview';
   state.activeNeed = null;
@@ -218,12 +220,34 @@ function renderOverview() {
     return;
   }
 
-  const grid = document.createElement('div');
-  grid.className = 'concept-grid';
-  for (const need of state.graph.hierarchy) {
-    grid.appendChild(buildNeedCard(need));
+  const needs = state.graph.hierarchy;
+  const totalDiamond = DIAMOND_ROWS.reduce((a, b) => a + b, 0);
+  const wrapper = document.createElement('div');
+  wrapper.className = 'overview-wrapper';
+
+  if (needs.length === totalDiamond) {
+    const diamond = document.createElement('div');
+    diamond.className = 'diamond-grid';
+    let i = 0;
+    for (const rowSize of DIAMOND_ROWS) {
+      const row = document.createElement('div');
+      row.className = 'diamond-row';
+      for (let r = 0; r < rowSize; r++) {
+        row.appendChild(buildNeedCard(needs[i++]));
+      }
+      diamond.appendChild(row);
+    }
+    wrapper.appendChild(diamond);
+  } else {
+    const grid = document.createElement('div');
+    grid.className = 'concept-grid';
+    for (const need of needs) {
+      grid.appendChild(buildNeedCard(need));
+    }
+    wrapper.appendChild(grid);
   }
-  stageEl.appendChild(grid);
+
+  stageEl.appendChild(wrapper);
 }
 
 function buildNeedCard(need) {
@@ -260,15 +284,23 @@ function buildNeedCard(need) {
   body.appendChild(meta);
   card.appendChild(body);
 
-  const hoverList = document.createElement('div');
-  hoverList.className = 'need-card-subneeds';
-  for (const s of (need.subneeds || [])) {
+  const subneeds = need.subneeds || [];
+  const subneedList = document.createElement('div');
+  subneedList.className = 'need-card-subneeds';
+  const cap = 3;
+  for (const s of subneeds.slice(0, cap)) {
     const item = document.createElement('div');
     item.className = 'need-card-subneed';
     item.textContent = s.name;
-    hoverList.appendChild(item);
+    subneedList.appendChild(item);
   }
-  card.appendChild(hoverList);
+  if (subneeds.length > cap) {
+    const more = document.createElement('div');
+    more.className = 'need-card-more';
+    more.textContent = `+ ${subneeds.length - cap} more`;
+    subneedList.appendChild(more);
+  }
+  card.appendChild(subneedList);
 
   card.addEventListener('click', () => navigateToNeed(need, card));
   return card;
@@ -339,7 +371,7 @@ function navigateToNeed(need, fromCard) {
   const directTasks = need.tasks || [];
   if (directTasks.length) {
     board.appendChild(buildSubneedCol(
-      { name: 'Direct Tasks', description: '', tasks: directTasks },
+      { name: 'Direct Tasks', description: '', tasks: directTasks, isDirect: true },
       need.id
     ));
   }
@@ -403,11 +435,11 @@ function navigateBack() {
 
 function buildSubneedCol(subneed, needId) {
   const col = document.createElement('div');
-  col.className = 'subneed-col';
+  col.className = subneed.isDirect ? 'subneed-col direct' : 'subneed-col';
+  setAccent(col, needId);
 
   const hdr = document.createElement('div');
   hdr.className = 'col-header';
-  setAccent(hdr, needId);
 
   const colName = document.createElement('div');
   colName.className = 'col-name';
@@ -424,7 +456,9 @@ function buildSubneedCol(subneed, needId) {
   const colCount = document.createElement('div');
   colCount.className = 'col-count';
   const n = (subneed.tasks || []).length;
-  colCount.textContent = `${n} task${n !== 1 ? 's' : ''}`;
+  colCount.textContent = subneed.isDirect
+    ? `${n} task${n !== 1 ? 's' : ''}`
+    : `Subneed · ${n} task${n !== 1 ? 's' : ''}`;
   hdr.appendChild(colCount);
   col.appendChild(hdr);
 
@@ -451,19 +485,27 @@ function buildTaskCard(task) {
   if (sharedIds.has(task.id)) {
     const others = getOtherNeedsForTask(task.id);
     if (others.length) {
-      const dots = document.createElement('div');
-      dots.className = 'reuse-dots';
-      const names = others.map(n => n.name).join(', ');
-      dots.title = `Also in: ${names}`;
+      card.classList.add('multi-parent');
+      const row = document.createElement('div');
+      row.className = 'reuse-dots';
+      const label = document.createElement('span');
+      label.className = 'reuse-label';
+      label.textContent = 'Also in';
+      row.appendChild(label);
       for (const need of others) {
+        const entry = document.createElement('span');
+        entry.className = 'reuse-entry';
         const dot = document.createElement('span');
         dot.className = 'reuse-dot';
         const color = state.needColors.get(need.id);
         if (color) dot.style.background = color.hex;
-        dot.title = need.name;
-        dots.appendChild(dot);
+        const name = document.createElement('span');
+        name.className = 'reuse-name';
+        name.textContent = need.name;
+        entry.append(dot, name);
+        row.appendChild(entry);
       }
-      card.appendChild(dots);
+      card.appendChild(row);
     }
   }
 
@@ -543,7 +585,9 @@ function renderDrawer(id) {
   body.className = 'drawer-body';
 
   if (type === 'Task') {
-    const homes = getTaskHomes(id);
+    const homes = getTaskHomes(id).sort((a, b) =>
+      a.needId === state.activeNeed?.id ? -1 : b.needId === state.activeNeed?.id ? 1 : 0
+    );
     const sec = document.createElement('div');
     sec.className = 'drawer-section';
 
@@ -558,7 +602,9 @@ function renderDrawer(id) {
     for (const home of homes) {
       const color = state.needColors.get(home.needId);
       const li = document.createElement('li');
-      li.className = 'drawer-home-item';
+      li.className = home.needId === state.activeNeed?.id
+        ? 'drawer-home-item current'
+        : 'drawer-home-item';
 
       const dot = document.createElement('span');
       dot.className = 'drawer-home-dot';
@@ -568,13 +614,15 @@ function renderDrawer(id) {
       needName.className = 'drawer-home-need';
       needName.textContent = home.needName;
 
-      const jump = document.createElement('button');
-      jump.className = 'drawer-jump';
-      jump.textContent = 'Go →';
-      const { needId } = home;
-      jump.addEventListener('click', () => jumpToNeed(needId, id));
+      li.append(dot, needName);
 
-      li.append(dot, needName, jump);
+      if (home.needId !== state.activeNeed?.id) {
+        const jump = document.createElement('button');
+        jump.className = 'drawer-jump';
+        jump.textContent = 'Go →';
+        jump.addEventListener('click', () => jumpToNeed(home.needId, id));
+        li.appendChild(jump);
+      }
 
       if (home.subneedName) {
         const sub = document.createElement('span');

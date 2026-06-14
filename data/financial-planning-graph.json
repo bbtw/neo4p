@@ -595,66 +595,6 @@
       "description": ""
     },
     {
-      "id": "education",
-      "label": "Need",
-      "name": "Education",
-      "description": "Plan education costs, savings, financial aid assumptions, and student loans."
-    },
-    {
-      "id": "college_funding",
-      "label": "Subneed",
-      "name": "College Funding",
-      "description": "Review expected education costs and funding sources."
-    },
-    {
-      "id": "estimate_expected_education_costs",
-      "label": "Task",
-      "name": "Estimate expected education costs",
-      "description": ""
-    },
-    {
-      "id": "review_available_education_savings",
-      "label": "Task",
-      "name": "Review available education savings",
-      "description": ""
-    },
-    {
-      "id": "evaluate_financial_aid_assumptions",
-      "label": "Task",
-      "name": "Evaluate financial aid assumptions",
-      "description": ""
-    },
-    {
-      "id": "recommend_college_funding_strategy",
-      "label": "Task",
-      "name": "Recommend college funding strategy",
-      "description": ""
-    },
-    {
-      "id": "student_loan_planning",
-      "label": "Subneed",
-      "name": "Student Loan Planning",
-      "description": "Review student loan inventory and repayment options."
-    },
-    {
-      "id": "inventory_student_loans",
-      "label": "Task",
-      "name": "Inventory student loans",
-      "description": ""
-    },
-    {
-      "id": "review_repayment_plan_options",
-      "label": "Task",
-      "name": "Review repayment plan options",
-      "description": ""
-    },
-    {
-      "id": "evaluate_refinancing_fit",
-      "label": "Task",
-      "name": "Evaluate refinancing fit",
-      "description": ""
-    },
-    {
       "id": "update_customer_profile",
       "label": "Task",
       "name": "Update customer profile",
@@ -1120,51 +1060,6 @@
     {
       "source": "incapacity_planning",
       "target": "confirm_access_to_key_financial_information",
-      "type": "HAS_TASK"
-    },
-    {
-      "source": "education",
-      "target": "college_funding",
-      "type": "HAS_SUBNEED"
-    },
-    {
-      "source": "college_funding",
-      "target": "estimate_expected_education_costs",
-      "type": "HAS_TASK"
-    },
-    {
-      "source": "college_funding",
-      "target": "review_available_education_savings",
-      "type": "HAS_TASK"
-    },
-    {
-      "source": "college_funding",
-      "target": "evaluate_financial_aid_assumptions",
-      "type": "HAS_TASK"
-    },
-    {
-      "source": "college_funding",
-      "target": "recommend_college_funding_strategy",
-      "type": "HAS_TASK"
-    },
-    {
-      "source": "education",
-      "target": "student_loan_planning",
-      "type": "HAS_SUBNEED"
-    },
-    {
-      "source": "student_loan_planning",
-      "target": "inventory_student_loans",
-      "type": "HAS_TASK"
-    },
-    {
-      "source": "student_loan_planning",
-      "target": "review_repayment_plan_options",
-      "type": "HAS_TASK"
-    },
-    {
-      "source": "student_loan_planning",
-      "target": "evaluate_refinancing_fit",
       "type": "HAS_TASK"
     },
     {
