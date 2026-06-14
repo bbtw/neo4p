@@ -9,33 +9,27 @@ part of estate planning, life insurance, and retirement savings. `Update
 customer profile` can support cash flow, retirement readiness, and estate
 planning.
 
-The browser UI provides:
+The browser UI is a two-tier card board:
 
-- A left-side hierarchy projection for browsing needs, subneeds, and tasks.
-- A graph canvas showing nodes and relationships.
-- A detail panel showing the selected node's parents and children.
-- Buttons to load the JSON seed, export Neo4j back to JSON, and wipe the app graph.
+- **Overview**: a summary card followed by one column per planning need, each
+  showing its subneeds with a proportional task-count bar. Click any need column
+  to drill in.
+- **Need detail**: the selected need's subneeds become columns of task cards.
+  A breadcrumb at the top lets you return to the overview or jump directly to
+  another need with the ▾ switcher.
 
-## Interacting With The Graph
+## Interacting With The Board
 
-- Click any node to select it. Its ancestors and direct children stay
-  highlighted while the rest of the canvas dims. Dimmed nodes are still
-  clickable, so you can refocus on any node at any time.
-- Clear the selection by clicking empty canvas space or pressing `Esc`.
-- Use the caret on a need or subneed to expand or collapse its children.
-- The search box filters the canvas to matching nodes and their branches.
-
-### Shared nodes
-
-A task or subneed that belongs to more than one parent is marked with a
-`shared` badge. Click the badge to open a popover listing the node's other
-parents (every parent it appears under, except the one you are currently
-viewing it through). Click a parent in that list to jump to that location: the
-viewer expands the branch, scrolls the node's instance into view, and selects
-it. Pressing `Esc` closes the popover before it clears the selection.
-
-> Note: if a listed parent is itself shared (appears in multiple places in the
-> hierarchy), the jump lands on that parent's first occurrence.
+- Click a need column on the overview to open its detail view.
+- Click a task card to open the detail drawer on the right. The drawer shows
+  every need the task belongs to, with color-coded dots. Click **Go →** on any
+  other need to jump there and scroll the task into view.
+- Tasks that appear in more than one need show colored dots labeled **Also in**
+  directly on the card.
+- Close the drawer by clicking **✕**, pressing `Esc`, or clicking empty
+  board space.
+- Open the command palette with `⌘K` (or `Ctrl+K`) to search across needs,
+  subneeds, and tasks. Selecting a result navigates directly to it.
 
 ## Graph Model
 
@@ -45,7 +39,7 @@ The graph has three node labels:
 - `Subneed`: a more specific planning area within a need.
 - `Task`: a reusable planning action.
 
-The graph currently has two relationship types:
+Relationship types:
 
 - `(:Need)-[:HAS_SUBNEED]->(:Subneed)`
 - `(:Need)-[:HAS_TASK]->(:Task)`
@@ -75,8 +69,8 @@ lists:
 ```
 
 Use multiple `HAS_TASK` relationships when one task belongs to multiple needs
-or subneeds. The left panel lists that task under each parent relationship; the
-graph canvas still treats it as one task node with multiple incoming edges.
+or subneeds. The board shows that task under each parent; the graph still
+treats it as one node with multiple incoming edges.
 
 Imported nodes also receive the shared `FinancialPlanningGraph` label so the
 import script can replace this graph without touching unrelated Neo4j data.
@@ -156,7 +150,7 @@ uv run python scripts/export_graph.py --output data/financial-planning-graph.jso
 
 ## UI Graph Actions
 
-The toolbar includes three graph operation buttons:
+The toolbar `···` overflow menu includes three graph operation buttons:
 
 - `Load JSON`: replaces the Neo4j planning graph with `data/financial-planning-graph.json`.
 - `Export JSON`: downloads the current Neo4j graph as `financial-planning-graph.json`.
