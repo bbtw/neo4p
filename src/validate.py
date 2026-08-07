@@ -1,11 +1,13 @@
 """
 Validate a snapshotted planning graph.
 
-Three layers:
+Four layers:
   1. structural - is the graph shaped the way you think it is?
   2. paths      - enumerate every route a client could take, and flag any
                   route that is not on the approved list
-  3. scenario   - do known client profiles produce the expected step sequence?
+  3. rules      - check every route against approved invariants (precedence,
+                  mutual exclusion) instead of the exact path list
+  4. scenario   - do known client profiles produce the expected step sequence?
 
 Usage:
     python validate.py snapshots/20260806T142301Z/graph.graphml expectations.yaml
@@ -16,7 +18,7 @@ Exit code 0 = all checks passed, 1 = something failed. Safe to run in CI.
 
 import json
 import sys
-from pathlib import Path
+from pathlib import Pathok
 
 import networkx as nx
 import yaml
@@ -87,8 +89,10 @@ def enumerate_paths(graph, entries, terminals):
     """Every simple route from an entry point to an endpoint, sorted for diffing."""
     paths = []
     for entry in sorted(entries):
+        if entry not in graph:
+            continue
         for terminal in sorted(terminals):
-            if entry == terminal or not nx.has_path(graph, entry, terminal):
+            if terminal not in graph or entry == terminal or not nx.has_path(graph, entry, terminal):
                 continue
             for path in nx.all_simple_paths(graph, entry, terminal):
                 paths.append(path)
@@ -115,7 +119,42 @@ def check_paths(actual, approved):
 
 
 # --------------------------------------------------------------------------
-# 3. scenario checks
+# 3. rule checks
+# --------------------------------------------------------------------------
+
+def check_rules(paths, rules):
+    """Check every path against approved invariants instead of an exact list.
+
+    Covers paths that don't exist yet, not just the ones enumerated today —
+    see mine_rules.py for generating an initial rule set from the current
+    path list.
+    """
+    failures = []
+    for rule in rules:
+        kind = rule["type"]
+        if kind == "precedence":
+            before, after = rule["before"], rule["after"]
+            for path in paths:
+                if before in path and after in path and path.index(before) > path.index(after):
+                    failures.append(
+                        f"precedence rule violated: {before!r} must come "
+                        f"before {after!r}: {path}"
+                    )
+        elif kind == "mutual_exclusion":
+            steps = set(rule["steps"])
+            for path in paths:
+                if steps <= set(path):
+                    failures.append(
+                        f"mutual exclusion rule violated: {sorted(steps)} "
+                        f"both appear in {path}"
+                    )
+        else:
+            failures.append(f"unknown rule type: {kind!r}")
+    return failures
+
+
+# --------------------------------------------------------------------------
+# 4. scenario checks
 # --------------------------------------------------------------------------
 
 def edge_allowed(profile, data):
@@ -182,6 +221,7 @@ def main():
             paths = enumerate_paths(graph, entries, terminals)
             (outdir / "paths.json").write_text(json.dumps(paths, indent=2) + "\n")
             failures += check_paths(paths, config.get("approved_paths", []))
+            failures += check_rules(paths, config.get("rules", []))
         except ValueError as exc:
             failures.append(str(exc))
 
