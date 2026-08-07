@@ -16,7 +16,7 @@
   "python.analysis.typeCheckingMode": "basic",
   "python.analysis.autoSearchPaths": true,
   "python.analysis.useLibraryCodeForTypes": true,
-  "workbench.colorTheme": "Darcula",
+  "workbench.colorTheme": "One Dark Pro",
   "editor.fontFamily": "Source Code Pro, JetBrains Mono, Menlo, Monaco, 'Courier New', monospace",
   "editor.fontSize": 12,
   "editor.lineHeight": 22,
