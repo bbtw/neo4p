@@ -35,7 +35,7 @@ TRANSITIONS = [
 ]
 
 
-def build():
+def build() -> nx.DiGraph:
     graph = nx.DiGraph()
     for step, (rationale, source_doc) in STEPS.items():
         graph.add_node(step, rationale=rationale, source_doc=source_doc)

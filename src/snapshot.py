@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import networkx as nx
-from neo4j import GraphDatabase
+from neo4j import Driver, GraphDatabase
 
 NODE_QUERY = """
 MATCH (n:Step)
@@ -32,7 +32,7 @@ RETURN a.id AS src, b.id AS dst, type(r) AS rel, properties(r) AS props
 """
 
 
-def clean(props):
+def clean(props: dict) -> dict:
     """GraphML only stores scalars. Drop nulls, join lists, keep numbers as numbers."""
     out = {}
     for key, value in props.items():
@@ -45,7 +45,7 @@ def clean(props):
     return out
 
 
-def fetch_graph(driver):
+def fetch_graph(driver: Driver) -> nx.DiGraph:
     graph = nx.DiGraph()
 
     with driver.session() as session:
@@ -72,16 +72,18 @@ def fetch_graph(driver):
     return graph
 
 
-def git_commit():
+def git_commit() -> str:
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
         ).strip()
-    except Exception:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return "unknown"
 
 
-def write_snapshot(graph, uri, root=Path("snapshots")):
+def write_snapshot(
+    graph: nx.DiGraph, uri: str, root: Path = Path("snapshots")
+) -> tuple[Path, dict]:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     outdir = root / stamp
     outdir.mkdir(parents=True, exist_ok=True)
@@ -102,7 +104,7 @@ def write_snapshot(graph, uri, root=Path("snapshots")):
     return outdir, manifest
 
 
-def main():
+def main() -> None:
     uri = os.environ["NEO4J_URI"]
     auth = (os.environ["NEO4J_USER"], os.environ["NEO4J_PASSWORD"])
 

@@ -18,7 +18,7 @@ Exit code 0 = all checks passed, 1 = something failed. Safe to run in CI.
 
 import json
 import sys
-from pathlib import Pathok
+from pathlib import Path
 
 import networkx as nx
 import yaml
@@ -36,7 +36,9 @@ MAX_PATHS = 5000
 # 1. structural checks
 # --------------------------------------------------------------------------
 
-def check_structure(graph, expected_entries, expected_terminals):
+def check_structure(
+    graph: nx.DiGraph, expected_entries: list[str], expected_terminals: list[str]
+) -> list[str]:
     """Return a list of failure strings. Empty list means the graph is sound."""
     failures = []
 
@@ -85,7 +87,9 @@ def check_structure(graph, expected_entries, expected_terminals):
 # 2. path enumeration
 # --------------------------------------------------------------------------
 
-def enumerate_paths(graph, entries, terminals):
+def enumerate_paths(
+    graph: nx.DiGraph, entries: list[str], terminals: list[str]
+) -> list[list[str]]:
     """Every simple route from an entry point to an endpoint, sorted for diffing."""
     paths = []
     for entry in sorted(entries):
@@ -104,7 +108,7 @@ def enumerate_paths(graph, entries, terminals):
     return sorted(paths)
 
 
-def check_paths(actual, approved):
+def check_paths(actual: list[list[str]], approved: list[list[str]]) -> list[str]:
     """Flag journeys nobody signed off on, and signed-off journeys that vanished."""
     failures = []
     actual_set = {tuple(p) for p in actual}
@@ -122,7 +126,7 @@ def check_paths(actual, approved):
 # 3. rule checks
 # --------------------------------------------------------------------------
 
-def check_rules(paths, rules):
+def check_rules(paths: list[list[str]], rules: list[dict]) -> list[str]:
     """Check every path against approved invariants instead of an exact list.
 
     Covers paths that don't exist yet, not just the ones enumerated today —
@@ -157,7 +161,7 @@ def check_rules(paths, rules):
 # 4. scenario checks
 # --------------------------------------------------------------------------
 
-def edge_allowed(profile, data):
+def edge_allowed(profile: dict, data: dict) -> bool:
     """
     Conditions are stored as a key/value pair, not as an expression string,
     so this is a plain lookup. Never eval() a condition pulled from a database.
@@ -165,7 +169,7 @@ def edge_allowed(profile, data):
     return profile.get(data["condition_key"]) == data["condition_value"]
 
 
-def walk(graph, start, profile):
+def walk(graph: nx.DiGraph, start: str, profile: dict) -> list[str]:
     """Follow the one edge whose condition the profile satisfies, until we stop."""
     path = [start]
     node = start
@@ -184,10 +188,13 @@ def walk(graph, start, profile):
         path.append(node)
 
 
-def check_scenarios(graph, scenarios):
+def check_scenarios(graph: nx.DiGraph, scenarios: list[dict]) -> list[str]:
     failures = []
     for case in scenarios:
         name = case["name"]
+        if case["start"] not in graph:
+            failures.append(f"scenario {name!r}: start step {case['start']!r} not in graph")
+            continue
         try:
             actual = walk(graph, case["start"], case["profile"])
         except ValueError as exc:
@@ -202,7 +209,7 @@ def check_scenarios(graph, scenarios):
 
 # --------------------------------------------------------------------------
 
-def main():
+def main() -> None:
     graphml_path, expectations_path = Path(sys.argv[1]), Path(sys.argv[2])
     outdir = graphml_path.parent
 
@@ -225,7 +232,7 @@ def main():
         except ValueError as exc:
             failures.append(str(exc))
 
-    failures += check_scenarios(graph, config["scenarios"])
+    failures += check_scenarios(graph, config.get("scenarios", []))
 
     report = {
         "graphml": str(graphml_path),

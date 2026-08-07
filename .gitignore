@@ -53,7 +53,13 @@ Thumbs.db
 # mypy
 .mypy_cache/
 
+# ruff
+.ruff_cache/
+
 # profiling
 
 # generated graph snapshots (see snapshot.py / make_sample_graph.py)
 snapshots/
+
+# local Claude Code settings
+.claude/settings.local.json

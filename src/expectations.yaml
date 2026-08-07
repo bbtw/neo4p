@@ -20,6 +20,39 @@ approved_paths:
   - [emergency_fund, pay_down_high_interest, employer_match_401k, roth_ira, taxable_brokerage]
   - [emergency_fund, pay_down_high_interest, employer_match_401k, taxable_brokerage]
 
+# Invariants every journey must satisfy, checked in addition to the exact
+# approved_paths list above so that journeys added later are covered too, not
+# just the ones enumerated today. Mined from approved_paths by mine_rules.py,
+# then reviewed before being added here.
+rules:
+  - type: precedence
+    before: pay_down_high_interest
+    after: employer_match_401k
+  - type: precedence
+    before: employer_match_401k
+    after: roth_ira
+  - type: precedence
+    before: employer_match_401k
+    after: taxable_brokerage
+  - type: precedence
+    before: employer_match_401k
+    after: estate_review
+  - type: precedence
+    before: pay_down_high_interest
+    after: roth_ira
+  - type: precedence
+    before: pay_down_high_interest
+    after: taxable_brokerage
+  - type: precedence
+    before: pay_down_high_interest
+    after: estate_review
+  - type: precedence
+    before: roth_ira
+    after: taxable_brokerage
+  - type: precedence
+    before: roth_ira
+    after: estate_review
+
 # Concrete client profiles walked through the graph. These catch logic errors
 # that the structural checks cannot see.
 scenarios:
