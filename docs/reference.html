@@ -562,13 +562,13 @@
 
     <section id="why">
       <h2>Why this exists</h2>
-      <p>The graph is a directed sequence of steps — <code class="inline">emergency_fund</code> → <code class="inline">pay_down_high_interest</code> → <code class="inline">employer_match_401k</code> → … — where each edge is a condition on a client's profile. Walking the graph from an entry point for a given client produces the ordered task list they're shown.</p>
+      <p>The graph is a directed sequence of tasks — <code class="inline">emergency_fund</code> → <code class="inline">pay_down_high_interest</code> → <code class="inline">employer_match_401k</code> → … — connected by <code class="inline">HAS_CHILD</code> edges. Where a task's next step depends on the client, one or more <code class="inline">CRITERIA_BRANCH</code> edges — each carrying a <code class="inline">condition_key</code>/<code class="inline">condition_value</code> — fan out from that task to a <code class="inline">CriteriaNode</code> per branch ("does the client have an emergency fund on hand?"), and each criteria node's own <code class="inline">HAS_CHILD</code> edge points at the task that branch resolves to. Walking the graph from an entry point for a given client produces the ordered task list they're shown.</p>
       <p>Because that output reaches real customers, a bad edge, a missing precondition, or an accidental new route through the graph is a compliance and trust problem, not just a bug. <code class="inline">validate.py</code> exists to catch that before a graph change ships, not after a client has acted on it.</p>
     </section>
 
     <section id="why-graph">
       <h2>Why a graph, and not just a rules engine like Drools</h2>
-      <p>A fair challenge, and a common one: the decisions here — is a task complete, is the 401(k) match maxed, does a profile satisfy some condition — are genuinely rules. An edge's <code class="inline">condition_key</code>/<code class="inline">condition_value</code>, or a criteria node, is the same shape as a Drools production rule: a condition against client facts, deciding what happens next. Not in dispute.</p>
+      <p>A fair challenge, and a common one: the decisions here — is a task complete, is the 401(k) match maxed, does a profile satisfy some condition — are genuinely rules. A <code class="inline">CRITERIA_BRANCH</code> edge's <code class="inline">condition_key</code>/<code class="inline">condition_value</code>, evaluated at a criteria node, is the same shape as a Drools production rule: a condition against client facts, deciding what happens next. Not in dispute.</p>
 
       <div class="compare">
         <div class="compare-col">
@@ -579,10 +579,11 @@ then
     recommend(increase_401k_contribution);</code></pre>
         </div>
         <div class="compare-col">
-          <span class="compare-label">As a graph edge condition</span>
-          <pre><code>employer_match_401k -> increase_401k_contribution
+          <span class="compare-label">As a graph criteria node</span>
+          <pre><code>employer_match_401k -CRITERIA_BRANCH-> (CriteriaNode)
   condition_key: employer_match_status
-  condition_value: not_maxed</code></pre>
+  condition_value: not_maxed
+(CriteriaNode) -HAS_CHILD-> increase_401k_contribution</code></pre>
         </div>
       </div>
       <p class="compare-caption">Same evaluation, same logic. The difference shows up one level up — in what these decisions compose into.</p>
@@ -669,8 +670,8 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
             <li>entry points match <code class="inline">expected_entries</code> — nothing silently added or removed</li>
             <li>every node reachable from an entry point — no orphaned step</li>
             <li>every dead end is a declared terminal, not an accident</li>
-            <li>every node carries <code class="inline">rationale</code> + <code class="inline">source_doc</code></li>
-            <li>every edge carries <code class="inline">condition_key</code> + <code class="inline">condition_value</code></li>
+            <li>every task node carries <code class="inline">rationale</code> + <code class="inline">source_doc</code></li>
+            <li>every <code class="inline">CRITERIA_BRANCH</code> edge carries <code class="inline">condition_key</code> + <code class="inline">condition_value</code></li>
           </ul>
           <p class="verdict">Cheap, exhaustive. Says nothing about whether the graph's <em>behavior</em> is correct — only its shape and metadata.</p>
         </div>
@@ -804,7 +805,7 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
         <p>A reviewer is <strong>not</strong> attesting to having read every one of the graph's thousands of possible journeys — nobody can, and a process that implies otherwise isn't oversight, it's a rubber stamp with extra steps.</p>
       </div>
 
-      <p>Every node in the graph carries <code class="inline">rationale</code> and <code class="inline">source_doc</code>, enforced by layer 1 — treat that as the audit trail. Any flagged step should trace back to why it exists and which policy document put it there.</p>
+      <p>Every task node in the graph carries <code class="inline">rationale</code> and <code class="inline">source_doc</code>, enforced by layer 1 — treat that as the audit trail. Any flagged step should trace back to why it exists and which policy document put it there.</p>
     </section>
 
     <footer class="doc-footer">

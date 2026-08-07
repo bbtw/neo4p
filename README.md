@@ -11,13 +11,16 @@ paths.
 
 ## Why this exists
 
-The graph is a directed sequence of steps (build emergency fund → pay down
-high-interest debt → capture the 401k match → ...), where each edge is a
-condition on a client's profile. Walking the graph from an entry point for a
-given client produces the ordered task list they're shown. Because this
-output reaches real customers, a bad edge, a missing precondition, or an
-accidental new route through the graph is a compliance and trust problem, not
-just a bug.
+The graph is a directed sequence of tasks (build emergency fund → pay down
+high-interest debt → capture the 401k match → ...), connected by `HAS_CHILD`
+edges. Where a task's next step depends on the client, `CRITERIA_BRANCH`
+edges — each carrying a `condition_key`/`condition_value` — fan out from that
+task to a `CriteriaNode` per branch, and each criteria node's `HAS_CHILD`
+edge points at the task that branch resolves to. Walking the graph from an
+entry point for a given client produces the ordered task list they're shown.
+Because this output reaches real customers, a bad edge, a missing
+precondition, or an accidental new route through the graph is a compliance
+and trust problem, not just a bug.
 
 `validate.py` exists to catch that before a graph change ships, not after a
 client has acted on it.

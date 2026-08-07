@@ -21,13 +21,15 @@ import networkx as nx
 from neo4j import Driver, GraphDatabase
 
 NODE_QUERY = """
-MATCH (n:Step)
+MATCH (n)
+WHERE n:Task OR n:CriteriaNode
 RETURN n.id AS id, labels(n) AS labels, properties(n) AS props
 """
 
-# Queried separately from nodes so that isolated steps are not silently dropped.
+# Queried separately from nodes so that isolated nodes are not silently dropped.
 EDGE_QUERY = """
-MATCH (a:Step)-[r]->(b:Step)
+MATCH (a)-[r:HAS_CHILD|CRITERIA_BRANCH]->(b)
+WHERE (a:Task OR a:CriteriaNode) AND (b:Task OR b:CriteriaNode)
 RETURN a.id AS src, b.id AS dst, type(r) AS rel, properties(r) AS props
 """
 
@@ -51,7 +53,7 @@ def fetch_graph(driver: Driver) -> nx.DiGraph:
     with driver.session() as session:
         for rec in session.run(NODE_QUERY):
             if rec["id"] is None:
-                raise ValueError(f"Step node has no id (labels={rec['labels']})")
+                raise ValueError(f"node has no id (labels={rec['labels']})")
             graph.add_node(
                 rec["id"],
                 labels=";".join(rec["labels"]),

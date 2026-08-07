@@ -1,13 +1,23 @@
 """
 Validate a snapshotted planning graph.
 
+The graph holds two kinds of node: Task (a client-facing step) and
+CriteriaNode (a branch point). A conditional transition is
+task -CRITERIA_BRANCH-> criteria node -HAS_CHILD-> task, with the
+condition_key/condition_value living on the CRITERIA_BRANCH edge; an
+unconditional transition is a direct task -HAS_CHILD-> task edge.
+
 Four layers:
   1. structural - is the graph shaped the way you think it is?
   2. paths      - enumerate every route a client could take, and flag any
                   route that is not on the approved list
   3. rules      - check every route against approved invariants (precedence,
                   mutual exclusion) instead of the exact path list
-  4. scenario   - do known client profiles produce the expected step sequence?
+  4. scenario   - do known client profiles produce the expected task sequence?
+
+Layers 2-4 only ever reason about tasks: collapse_criteria() first resolves
+every task -CRITERIA_BRANCH-> criteria node -HAS_CHILD-> task chain into a
+plain task -> task edge carrying that branch's condition.
 
 Usage:
     python validate.py snapshots/20260806T142301Z/graph.graphml expectations.yaml
@@ -23,13 +33,17 @@ from pathlib import Path
 import networkx as nx
 import yaml
 
-REQUIRED_NODE_ATTRS = ("rationale", "source_doc")
-REQUIRED_EDGE_ATTRS = ("condition_key", "condition_value")
+REQUIRED_TASK_ATTRS = ("rationale", "source_doc")
+REQUIRED_BRANCH_ATTRS = ("condition_key", "condition_value")
 
 # A combinatorial graph can have astronomically many simple paths. If we blow
 # past this, the graph is too branchy to review path-by-path and you should
 # know that rather than wait for the script to finish.
 MAX_PATHS = 5000
+
+
+def is_task(data: dict) -> bool:
+    return "Task" in data.get("labels", "").split(";")
 
 
 # --------------------------------------------------------------------------
@@ -46,7 +60,7 @@ def check_structure(
     if not nx.is_directed_acyclic_graph(graph):
         failures.append(f"graph contains a cycle: {nx.find_cycle(graph)}")
 
-    # Entry points are the steps nothing leads to.
+    # Entry points are the nodes nothing leads to.
     entries = {n for n, d in graph.in_degree() if d == 0}
     if entries != set(expected_entries):
         failures.append(
@@ -54,13 +68,13 @@ def check_structure(
             f"found {sorted(entries)}"
         )
 
-    # Every step must be reachable from some entry point.
+    # Every node must be reachable from some entry point.
     reachable = set(entries)
     for entry in entries:
         reachable |= nx.descendants(graph, entry)
     orphans = set(graph) - reachable
     if orphans:
-        failures.append(f"unreachable steps: {sorted(orphans)}")
+        failures.append(f"unreachable nodes: {sorted(orphans)}")
 
     # Dead ends must be intentional endpoints, not accidents.
     terminals = {n for n, d in graph.out_degree() if d == 0}
@@ -68,19 +82,55 @@ def check_structure(
     if unexpected:
         failures.append(f"unexpected dead ends: {sorted(unexpected)}")
 
-    # Every step carries its justification.
+    # Every task carries its justification. Criteria nodes are branch points,
+    # not client-facing steps, so they're exempt.
     for node, data in graph.nodes(data=True):
-        missing = [a for a in REQUIRED_NODE_ATTRS if not data.get(a)]
+        if not is_task(data):
+            continue
+        missing = [a for a in REQUIRED_TASK_ATTRS if not data.get(a)]
         if missing:
-            failures.append(f"node {node!r} missing {missing}")
+            failures.append(f"task {node!r} missing {missing}")
 
-    # Every transition states the condition under which it is taken.
+    # Every branch states the condition under which it is taken. Plain
+    # HAS_CHILD edges between two tasks are unconditional by construction.
     for src, dst, data in graph.edges(data=True):
-        missing = [a for a in REQUIRED_EDGE_ATTRS if a not in data]
+        if data.get("rel") != "CRITERIA_BRANCH":
+            continue
+        missing = [a for a in REQUIRED_BRANCH_ATTRS if a not in data]
         if missing:
-            failures.append(f"edge {src!r} -> {dst!r} missing {missing}")
+            failures.append(f"branch {src!r} -> {dst!r} missing {missing}")
 
     return failures
+
+
+# --------------------------------------------------------------------------
+# 1b. collapse criteria nodes into plain task -> task edges
+# --------------------------------------------------------------------------
+
+def collapse_criteria(graph: nx.DiGraph) -> nx.DiGraph:
+    """Resolve every task -CRITERIA_BRANCH-> criteria node -HAS_CHILD-> task
+    chain into a direct task -> task edge carrying the branch's condition, so
+    path enumeration, rule checks, and scenario walks only ever see tasks.
+    """
+    collapsed = nx.DiGraph()
+    for node, data in graph.nodes(data=True):
+        if is_task(data):
+            collapsed.add_node(node, **data)
+
+    for src, dst, data in graph.edges(data=True):
+        rel = data.get("rel")
+        if rel == "HAS_CHILD" and src in collapsed and dst in collapsed:
+            collapsed.add_edge(src, dst, **data)
+        elif rel == "CRITERIA_BRANCH":
+            children = [c for c in graph.successors(dst) if is_task(graph.nodes[c])]
+            if len(children) != 1:
+                raise ValueError(
+                    f"criteria node {dst!r} must have exactly one HAS_CHILD "
+                    f"task, found {children}"
+                )
+            collapsed.add_edge(src, children[0], **data)
+
+    return collapsed
 
 
 # --------------------------------------------------------------------------
@@ -221,18 +271,25 @@ def main() -> None:
 
     failures = check_structure(graph, entries, terminals)
 
-    # Only enumerate paths if the graph is acyclic; otherwise it never terminates.
-    paths = []
-    if nx.is_directed_acyclic_graph(graph):
-        try:
-            paths = enumerate_paths(graph, entries, terminals)
-            (outdir / "paths.json").write_text(json.dumps(paths, indent=2) + "\n")
-            failures += check_paths(paths, config.get("approved_paths", []))
-            failures += check_rules(paths, config.get("rules", []))
-        except ValueError as exc:
-            failures.append(str(exc))
+    try:
+        collapsed = collapse_criteria(graph)
+    except ValueError as exc:
+        failures.append(str(exc))
+        collapsed = None
 
-    failures += check_scenarios(graph, config.get("scenarios", []))
+    paths = []
+    if collapsed is not None:
+        # Only enumerate paths if the graph is acyclic; otherwise it never terminates.
+        if nx.is_directed_acyclic_graph(graph):
+            try:
+                paths = enumerate_paths(collapsed, entries, terminals)
+                (outdir / "paths.json").write_text(json.dumps(paths, indent=2) + "\n")
+                failures += check_paths(paths, config.get("approved_paths", []))
+                failures += check_rules(paths, config.get("rules", []))
+            except ValueError as exc:
+                failures.append(str(exc))
+
+        failures += check_scenarios(collapsed, config.get("scenarios", []))
 
     report = {
         "graphml": str(graphml_path),
