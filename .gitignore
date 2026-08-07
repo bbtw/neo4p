@@ -54,3 +54,6 @@ Thumbs.db
 .mypy_cache/
 
 # profiling
+
+# generated graph snapshots (see snapshot.py / make_sample_graph.py)
+snapshots/

@@ -1,0 +1,51 @@
+# What the graph is supposed to look like, and what it should recommend.
+# Keep this in version control next to the code: a graph change that breaks an
+# expected recommendation then fails the build instead of reaching a client.
+
+expected_entries:
+  - emergency_fund
+
+expected_terminals:
+  - taxable_brokerage
+  - estate_review
+
+# Every client journey the graph is allowed to produce. Regenerate from
+# paths.json when a change is intended, and review the diff before committing:
+# that diff is the record of which journeys a change added or removed.
+approved_paths:
+  - [emergency_fund, employer_match_401k, roth_ira, estate_review]
+  - [emergency_fund, employer_match_401k, roth_ira, taxable_brokerage]
+  - [emergency_fund, employer_match_401k, taxable_brokerage]
+  - [emergency_fund, pay_down_high_interest, employer_match_401k, roth_ira, estate_review]
+  - [emergency_fund, pay_down_high_interest, employer_match_401k, roth_ira, taxable_brokerage]
+  - [emergency_fund, pay_down_high_interest, employer_match_401k, taxable_brokerage]
+
+# Concrete client profiles walked through the graph. These catch logic errors
+# that the structural checks cannot see.
+scenarios:
+  - name: still building the fund
+    start: emergency_fund
+    profile:
+      fund_status: building
+    expected_path:
+      - emergency_fund
+
+  - name: funded but carrying card debt
+    start: emergency_fund
+    profile:
+      fund_status: funded_with_debt
+    expected_path:
+      - emergency_fund
+      - pay_down_high_interest
+
+  - name: funded and clear, roth then overflow
+    start: emergency_fund
+    profile:
+      fund_status: funded_clear
+      next_vehicle: roth
+      after_roth: invest
+    expected_path:
+      - emergency_fund
+      - employer_match_401k
+      - roth_ira
+      - taxable_brokerage
