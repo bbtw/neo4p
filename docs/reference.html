@@ -1,0 +1,721 @@
+<title>neo4p — Graph Validation Reference</title>
+<style>
+  :root {
+    --paper: #F2F4F0;
+    --ink: #1A1F1D;
+    --muted: #5C6560;
+    --line: #D6DACF;
+    --line-strong: #C1C6B8;
+    --accent: #1F6F63;
+    --accent-ink: #ffffff;
+    --risk: #A85419;
+    --risk-bg: #F4E3D3;
+    --card-bg: #FFFFFE;
+    --code-bg: #E7EAE1;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #131613;
+      --ink: #E7EAE4;
+      --muted: #97A192;
+      --line: #2B302B;
+      --line-strong: #3A4038;
+      --accent: #5FC2B0;
+      --accent-ink: #0B1210;
+      --risk: #E2914F;
+      --risk-bg: #3A2A1C;
+      --card-bg: #191D19;
+      --code-bg: #1E231E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131613;
+    --ink: #E7EAE4;
+    --muted: #97A192;
+    --line: #2B302B;
+    --line-strong: #3A4038;
+    --accent: #5FC2B0;
+    --accent-ink: #0B1210;
+    --risk: #E2914F;
+    --risk-bg: #3A2A1C;
+    --card-bg: #191D19;
+    --code-bg: #1E231E;
+  }
+  :root[data-theme="light"] {
+    --paper: #F2F4F0;
+    --ink: #1A1F1D;
+    --muted: #5C6560;
+    --line: #D6DACF;
+    --line-strong: #C1C6B8;
+    --accent: #1F6F63;
+    --accent-ink: #ffffff;
+    --risk: #A85419;
+    --risk-bg: #F4E3D3;
+    --card-bg: #FFFFFE;
+    --code-bg: #E7EAE1;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, ui-serif, Georgia, serif;
+    font-weight: 600;
+    text-wrap: balance;
+    color: var(--ink);
+  }
+
+  code, pre, .mono, dt.mono, .tag {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  }
+
+  a { color: var(--accent); }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 3rem 2rem 6rem;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 68ch);
+    gap: 4rem;
+    align-items: start;
+    justify-content: center;
+  }
+
+  nav.toc {
+    position: sticky;
+    top: 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    border-left: 2px solid var(--line);
+    padding-left: 1rem;
+  }
+  nav.toc .toc-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.35rem;
+  }
+  nav.toc a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+  nav.toc a:hover { color: var(--accent); }
+
+  main { min-width: 0; }
+
+  header.doc-header {
+    margin-bottom: 3rem;
+    padding-bottom: 2rem;
+    border-bottom: 2px solid var(--line);
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-size: 0.75rem;
+    color: var(--accent);
+    font-weight: 600;
+    margin: 0 0 0.9rem;
+  }
+  h1 {
+    font-size: 2.15rem;
+    line-height: 1.2;
+    margin: 0 0 0.9rem;
+  }
+  .subtitle {
+    font-size: 1.05rem;
+    color: var(--muted);
+    max-width: 56ch;
+    margin: 0 0 1.6rem;
+  }
+  dl.meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.75rem;
+    margin: 0;
+  }
+  dl.meta div { display: flex; flex-direction: column; gap: 0.2rem; }
+  dl.meta dt {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+  }
+  dl.meta dd {
+    margin: 0;
+    font-size: 0.9rem;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  section { margin-bottom: 3.2rem; }
+  section h2 {
+    font-size: 1.5rem;
+    margin: 0 0 1rem;
+  }
+  section > p { margin: 0 0 1rem; }
+  section p.lede {
+    font-size: 1.02rem;
+    color: var(--muted);
+  }
+
+  code.inline, p code, li code, dd code {
+    background: var(--code-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+    font-size: 0.88em;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-size: 0.86rem;
+    line-height: 1.55;
+    margin: 0 0 1rem;
+  }
+  pre code { background: none; padding: 0; }
+
+  /* pipeline flow diagram */
+  .flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+    padding: 0.25rem 0 0.75rem;
+  }
+  .flow-box {
+    flex: 0 0 auto;
+    border: 1px solid var(--line-strong);
+    background: var(--card-bg);
+    border-radius: 3px;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.82rem;
+    text-align: center;
+    min-width: 118px;
+  }
+  .flow-box .name {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    font-weight: 600;
+    display: block;
+  }
+  .flow-box .note {
+    color: var(--muted);
+    font-size: 0.74rem;
+    display: block;
+    margin-top: 0.2rem;
+  }
+  .flow-arrow {
+    flex: 0 0 auto;
+    color: var(--accent);
+    padding: 0 0.5rem;
+    font-size: 1.1rem;
+  }
+  .flow-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  dl.field-list { margin: 0; }
+  dl.field-list dt {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    font-weight: 600;
+    font-size: 0.92rem;
+    margin-top: 1rem;
+  }
+  dl.field-list dd {
+    margin: 0.25rem 0 0;
+    color: var(--ink);
+  }
+
+  /* validator layer cards */
+  .layer-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .layer-card {
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 3px;
+    padding: 1.1rem 1.3rem;
+  }
+  .layer-card .layer-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-bottom: 0.5rem;
+  }
+  .layer-card .layer-num {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, ui-serif, Georgia, serif;
+    font-size: 1.4rem;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .layer-card h3 {
+    font-size: 1.08rem;
+    margin: 0;
+  }
+  .layer-card .fn {
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+  .layer-card ul {
+    margin: 0.6rem 0 0.8rem;
+    padding-left: 1.15rem;
+  }
+  .layer-card li { margin-bottom: 0.25rem; }
+  .layer-card .verdict {
+    font-size: 0.86rem;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+    padding-top: 0.6rem;
+    margin-top: 0.6rem;
+  }
+
+  /* reviewer zone */
+  .reviewer-zone {
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 2rem 2.2rem 2.2rem;
+  }
+  .reviewer-zone h2 { margin-top: 0; }
+
+  .chart {
+    margin: 1.75rem 0 2rem;
+    position: relative;
+    padding-top: 0.5rem;
+  }
+  .chart-caption {
+    font-size: 0.74rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 1rem;
+  }
+  .chart-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    position: relative;
+  }
+  .chart-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 108px;
+    align-items: center;
+    gap: 0.7rem;
+    font-size: 0.8rem;
+  }
+  .chart-row .fork-label {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .chart-track {
+    background: var(--code-bg);
+    border-radius: 2px;
+    height: 13px;
+    position: relative;
+  }
+  .chart-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  .chart-row.over .chart-bar { background: var(--risk); }
+  .chart-row .value {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .chart-row.over .value { color: var(--risk); font-weight: 600; }
+  .cap-line {
+    position: absolute;
+    top: -0.5rem;
+    bottom: 0;
+    left: calc(90px + 0.7rem + (100% - 90px - 108px - 1.4rem) * 0.9452);
+    border-left: 1.5px dashed var(--risk);
+    pointer-events: none;
+  }
+  .cap-label {
+    position: absolute;
+    top: -1.4rem;
+    left: calc(90px + 0.7rem + (100% - 90px - 108px - 1.4rem) * 0.9452);
+    transform: translateX(-100%);
+    font-size: 0.68rem;
+    color: var(--risk);
+    white-space: nowrap;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  }
+
+  ol.tiers {
+    list-style: none;
+    margin: 0 0 1.75rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+  ol.tiers li {
+    display: grid;
+    grid-template-columns: 2.1rem 1fr;
+    gap: 0.9rem;
+  }
+  ol.tiers .tier-num {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, ui-serif, Georgia, serif;
+    font-size: 1.5rem;
+    color: var(--accent);
+    line-height: 1.3;
+  }
+  ol.tiers h3 {
+    font-size: 1rem;
+    margin: 0 0 0.3rem;
+  }
+  ol.tiers p { margin: 0; color: var(--ink); }
+
+  ol.howto {
+    margin: 0 0 1.75rem;
+    padding-left: 1.3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  ol.howto li { font-size: 0.95rem; }
+  ol.howto strong { color: var(--ink); }
+
+  .rule-examples {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 1.5rem 0 2rem;
+  }
+  .rule-card {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1.1rem 1.3rem;
+  }
+  .rule-card .rule-tag {
+    display: inline-block;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 0.1rem 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  .rule-card p.statement {
+    font-size: 0.98rem;
+    margin: 0 0 0.7rem;
+    color: var(--ink);
+  }
+  .rule-card pre {
+    margin: 0;
+    background: var(--card-bg);
+  }
+  .rule-card p.note {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin: 0.7rem 0 0;
+  }
+
+  .attestation {
+    background: var(--risk-bg);
+    border: 1px solid color-mix(in srgb, var(--risk) 40%, transparent);
+    border-radius: 4px;
+    padding: 1.1rem 1.3rem;
+    margin: 1.5rem 0;
+  }
+  .attestation p { margin: 0 0 0.6rem; font-size: 0.92rem; }
+  .attestation p:last-child { margin-bottom: 0; }
+  .attestation ul { margin: 0.4rem 0 0.7rem; padding-left: 1.2rem; }
+  .attestation strong { color: var(--risk); }
+
+  footer.doc-footer {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+
+  @media (max-width: 900px) {
+    .page {
+      grid-template-columns: 1fr;
+      padding: 2rem 1.25rem 4rem;
+      gap: 2rem;
+    }
+    nav.toc {
+      position: static;
+      flex-direction: row;
+      flex-wrap: wrap;
+      border-left: none;
+      border-bottom: 2px solid var(--line);
+      padding-left: 0;
+      padding-bottom: 1rem;
+      gap: 0.4rem 1.1rem;
+    }
+    .chart-row { grid-template-columns: 74px 1fr 88px; font-size: 0.72rem; }
+    .cap-line, .cap-label { display: none; }
+  }
+</style>
+
+<div class="page">
+  <nav class="toc">
+    <span class="toc-label">On this page</span>
+    <a href="#why">Why this exists</a>
+    <a href="#pipeline">Pipeline</a>
+    <a href="#usage">Setup &amp; usage</a>
+    <a href="#expectations">expectations.yaml</a>
+    <a href="#validators">The validators</a>
+    <a href="#signoff">Signing off</a>
+  </nav>
+
+  <main>
+    <header class="doc-header">
+      <p class="eyebrow">neo4p — internal reference</p>
+      <h1>Validating a planning graph before it reaches a client</h1>
+      <p class="subtitle">How a Neo4j recommendation graph gets snapshotted, checked, and signed off before it's allowed to suggest a financial-planning task to a real customer.</p>
+      <dl class="meta">
+        <div><dt>Pipeline</dt><dd>snapshot.py → validate.py</dd></div>
+        <div><dt>Path cap</dt><dd>MAX_PATHS = 5,000</dd></div>
+        <div><dt>Audience</dt><dd>engineering + compliance review</dd></div>
+      </dl>
+    </header>
+
+    <section id="why">
+      <h2>Why this exists</h2>
+      <p>The graph is a directed sequence of steps — <code class="inline">emergency_fund</code> → <code class="inline">pay_down_high_interest</code> → <code class="inline">employer_match_401k</code> → … — where each edge is a condition on a client's profile. Walking the graph from an entry point for a given client produces the ordered task list they're shown.</p>
+      <p>Because that output reaches real customers, a bad edge, a missing precondition, or an accidental new route through the graph is a compliance and trust problem, not just a bug. <code class="inline">validate.py</code> exists to catch that before a graph change ships, not after a client has acted on it.</p>
+    </section>
+
+    <section id="pipeline">
+      <h2>Pipeline</h2>
+      <div class="flow">
+        <div class="flow-box"><span class="name">Neo4j</span><span class="note">live planning graph</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><span class="name">snapshot.py</span><span class="note">freeze &amp; hash</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-stack">
+          <div class="flow-box"><span class="name">graph.graphml</span></div>
+          <div class="flow-box"><span class="name">manifest.json</span><span class="note">when, source, commit, sha256</span></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><span class="name">validate.py</span><span class="note">checked against expectations.yaml</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-stack">
+          <div class="flow-box"><span class="name">paths.json</span><span class="note">every journey found</span></div>
+          <div class="flow-box"><span class="name">validation.json</span><span class="note">pass / fail report</span></div>
+        </div>
+      </div>
+      <p><code class="inline">make_sample_graph.py</code> builds a small graph directly — no Neo4j required — so the pipeline can be run and understood end to end.</p>
+    </section>
+
+    <section id="usage">
+      <h2>Setup &amp; usage</h2>
+      <p><code class="inline">uv sync</code>, then, without Neo4j, using a generated sample graph:</p>
+      <pre><code>cd src
+uv run python make_sample_graph.py
+uv run python validate.py snapshots/sample/graph.graphml expectations.yaml</code></pre>
+      <p>Against a real Neo4j instance:</p>
+      <pre><code>cd src
+NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=... uv run python snapshot.py
+uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations.yaml</code></pre>
+      <p><code class="inline">validate.py</code> writes <code class="inline">paths.json</code> and <code class="inline">validation.json</code> into the snapshot directory and exits 1 on failure — safe to run in CI.</p>
+    </section>
+
+    <section id="expectations">
+      <h2>expectations.yaml</h2>
+      <p>The file every validation run checks the graph against. Kept in version control next to the code, so a graph change that breaks an expected recommendation fails the build instead of reaching a client.</p>
+      <dl class="field-list">
+        <dt>expected_entries / expected_terminals</dt>
+        <dd>The only steps allowed to have no predecessor / no successor. A new one showing up means a route changed without anyone intending it to.</dd>
+        <dt>approved_paths</dt>
+        <dd>Every client journey the graph is allowed to produce. Regenerated from <code class="inline">paths.json</code> when a change is intentional — the diff on this list <em>is</em> the record of which journeys a given change added or removed.</dd>
+        <dt>scenarios</dt>
+        <dd>Concrete client profiles with the step sequence they must produce, for spot-checking behavior the other checks can't see.</dd>
+      </dl>
+    </section>
+
+    <section id="validators">
+      <h2>The validators</h2>
+      <p><code class="inline">validate.py</code> runs three independent layers. Each catches a different class of problem; none of them subsumes the others.</p>
+
+      <div class="layer-cards">
+        <div class="layer-card">
+          <div class="layer-head">
+            <span class="layer-num">1</span>
+            <h3>Structural</h3>
+            <span class="fn">check_structure()</span>
+          </div>
+          <p>Is the graph shaped the way you think it is?</p>
+          <ul>
+            <li>acyclic — a recommendation flow can never loop</li>
+            <li>entry points match <code class="inline">expected_entries</code> — nothing silently added or removed</li>
+            <li>every node reachable from an entry point — no orphaned step</li>
+            <li>every dead end is a declared terminal, not an accident</li>
+            <li>every node carries <code class="inline">rationale</code> + <code class="inline">source_doc</code></li>
+            <li>every edge carries <code class="inline">condition_key</code> + <code class="inline">condition_value</code></li>
+          </ul>
+          <p class="verdict">Cheap, exhaustive. Says nothing about whether the graph's <em>behavior</em> is correct — only its shape and metadata.</p>
+        </div>
+
+        <div class="layer-card">
+          <div class="layer-head">
+            <span class="layer-num">2</span>
+            <h3>Path enumeration</h3>
+            <span class="fn">enumerate_paths() / check_paths()</span>
+          </div>
+          <p>Every simple entry-to-terminal route the graph can currently produce, diffed against <code class="inline">approved_paths</code>. Flags any journey nobody approved, and any approved journey that's no longer possible.</p>
+          <p class="verdict">Exhaustive and exact — when it passes, "every journey this graph can produce" and "every journey someone signed off on" are provably the same set. Also the layer that doesn't scale: past <code class="inline">MAX_PATHS</code> (5,000), it refuses to enumerate rather than hang or silently truncate.</p>
+        </div>
+
+        <div class="layer-card">
+          <div class="layer-head">
+            <span class="layer-num">3</span>
+            <h3>Rules</h3>
+            <span class="fn">check_rules()</span>
+          </div>
+          <p>Every route checked against approved invariants — precedence and mutual-exclusion — instead of an exact path list.</p>
+          <p class="verdict">Covers journeys that don't exist yet, not just the ones enumerated today. Candidates are bootstrapped from the current path list by <code class="inline">mine_rules.py</code> and reviewed before they're added to <code class="inline">expectations.yaml</code>'s <code class="inline">rules:</code> list — see <a href="#signoff">Signing off</a>, below.</p>
+        </div>
+
+        <div class="layer-card">
+          <div class="layer-head">
+            <span class="layer-num">4</span>
+            <h3>Scenario</h3>
+            <span class="fn">check_scenarios()</span>
+          </div>
+          <p>Does a handful of named, concrete client profiles produce the expected step sequence?</p>
+          <p class="verdict">Not exhaustive. Exists because a graph can pass layers 1 and 2 — correctly shaped, only approved paths — and still route an actual real-world profile down the wrong <em>one</em> of those approved paths.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="signoff" class="reviewer-zone">
+      <h2>Signing off on a graph with combinatorial paths</h2>
+      <p class="lede">For whoever is asked to approve a graph or a graph change — typically a compliance or risk reviewer outside the engineering team.</p>
+
+      <p>The instinctive request — "review every possible client journey" — is not something a person can do past a few dozen paths, and it gets worse fast: every additional sequential fork roughly doubles the journey count.</p>
+
+      <div class="chart">
+        <p class="chart-caption">Journeys produced by N sequential either/or forks — log scale</p>
+        <div class="chart-rows">
+          <div class="cap-line"></div>
+          <div class="cap-label">MAX_PATHS → 5,000</div>
+          <div class="chart-row"><span class="fork-label">1 fork</span><span class="chart-track"><span class="chart-bar" style="width:7.7%"></span></span><span class="value">2</span></div>
+          <div class="chart-row"><span class="fork-label">3 forks</span><span class="chart-track"><span class="chart-bar" style="width:23.1%"></span></span><span class="value">8</span></div>
+          <div class="chart-row"><span class="fork-label">5 forks</span><span class="chart-track"><span class="chart-bar" style="width:38.5%"></span></span><span class="value">32</span></div>
+          <div class="chart-row"><span class="fork-label">7 forks</span><span class="chart-track"><span class="chart-bar" style="width:53.8%"></span></span><span class="value">128</span></div>
+          <div class="chart-row"><span class="fork-label">9 forks</span><span class="chart-track"><span class="chart-bar" style="width:69.2%"></span></span><span class="value">512</span></div>
+          <div class="chart-row"><span class="fork-label">11 forks</span><span class="chart-track"><span class="chart-bar" style="width:84.6%"></span></span><span class="value">2,048</span></div>
+          <div class="chart-row"><span class="fork-label">12 forks</span><span class="chart-track"><span class="chart-bar" style="width:92.3%"></span></span><span class="value">4,096</span></div>
+          <div class="chart-row over"><span class="fork-label">13 forks</span><span class="chart-track"><span class="chart-bar" style="width:100%"></span></span><span class="value">8,192</span></div>
+        </div>
+      </div>
+
+      <p>At real graph sizes — hundreds of nodes, hundreds of edges — the honest number of distinct journeys is easily in the thousands. <code class="inline">MAX_PATHS</code> exists so nobody is ever asked, even accidentally, to review past that point by hand: the script fails loudly instead of quietly succeeding on an unreviewable graph.</p>
+
+      <p>Which means "read every path and sign off on each one" cannot be the review process — asking for it produces the opposite of oversight, because nobody actually reads 5,000 sequences, and the sign-off becomes a formality instead of a real check. The review has to be scoped down to something a person can hold in their head and genuinely mean their approval of. Three tiers do that:</p>
+
+      <ol class="tiers">
+        <li>
+          <span class="tier-num">1</span>
+          <div>
+            <h3>You approve rules, not paths.</h3>
+            <p>The thing worth a reviewer's judgment is not "is journey #4,812 acceptable" but the invariant behind it — <em>a client must never be told to increase investing before their emergency fund is confirmed funded</em>; <em>debt payoff and credit-limit-increase suggestions must never appear on the same journey</em>; <em>any journey touching a tax-advantaged withdrawal must be preceded by a tax-bracket check</em>. Ordinary suitability-style statements, the kind of judgment a compliance reviewer already makes — and there are a few hundred of them for this graph, not a few thousand paths.</p>
+          </div>
+        </li>
+        <li>
+          <span class="tier-num">2</span>
+          <div>
+            <h3>The rules are enforced automatically, every time.</h3>
+            <p>Once a rule is written down, it gets checked against every graph change in CI, forever, the same way <code class="inline">check_structure</code> and <code class="inline">check_paths</code> already run — without depending on anyone's attention on any given day. This is what makes the process <em>reliable</em>, not just honest at the moment of signing.</p>
+          </div>
+        </li>
+        <li>
+          <span class="tier-num">3</span>
+          <div>
+            <h3>You only see raw paths when something is new and high-risk.</h3>
+            <p><code class="inline">paths.json</code> and <code class="inline">approved_paths</code> give an exact diff on every change: which journeys are newly possible, which previously-approved ones vanished. Filtered to journeys touching a flagged high-risk step — money movement, tax elections, debt restructuring — that diff is realistically a handful of sequences per change: small enough to actually read, not skim.</p>
+          </div>
+        </li>
+      </ol>
+
+      <h3>How a rule gets written</h3>
+      <p>Rules aren't invented from nothing — they're read directly off the paths that are already approved:</p>
+      <ol class="howto">
+        <li><strong>Start from <code class="inline">approved_paths</code>.</strong> Look at the journeys already signed off on and ask what invariant explains why those exist and no others do.</li>
+        <li><strong>State it in plain language.</strong> A sentence a compliance reviewer would recognize as an ordinary suitability rule, not a graph-theory statement.</li>
+        <li><strong>Write it as one of the two shapes <code class="inline">check_rules()</code> understands</strong> — <code class="inline">precedence</code> (a always before b) or <code class="inline">mutual_exclusion</code> (a and b never together) — the same small vocabulary <code class="inline">mine_rules.py</code> mines automatically.</li>
+        <li><strong>The reviewer approves the sentence and the rule together</strong> — not by re-deriving it, but by confirming the rule actually says what the sentence claims.</li>
+        <li><strong>It runs in CI on every future change</strong>, so it covers paths that don't exist yet, not just the ones that existed on the day of review.</li>
+      </ol>
+      <p>That last step is the actual reason rules beat paths, not just a convenience. A path-by-path review only certifies the paths that exist on the day of the review — the next fork added six months later produces journeys nobody in that review ever saw. A rule, once approved, automatically governs every path the graph will ever produce, including ones that don't exist yet, because it's checked at build time forever, not read once.</p>
+
+      <p><code class="inline">mine_rules.py</code> automates step one. Point it at a verified graph's <code class="inline">paths.json</code> and it mines every precedence and mutual-exclusion invariant that already holds — a drafted rule set to review, instead of a blank page:</p>
+      <pre><code>uv run python mine_rules.py snapshots/sample/paths.json
+# wrote 9 candidate rules to snapshots/sample/mined_rules.yaml</code></pre>
+      <p>Review <code class="inline">mined_rules.yaml</code>, keep the ones actually meant to hold, and paste them into <code class="inline">expectations.yaml</code>'s <code class="inline">rules:</code> list. From then on <code class="inline">check_rules()</code> enforces them on every run — the third validator layer above.</p>
+
+      <h3>Two rule types, mined from this graph's paths</h3>
+      <div class="rule-examples">
+        <div class="rule-card">
+          <span class="rule-tag">Precedence</span>
+          <p class="statement">"No client is shown a Roth IRA or taxable-brokerage suggestion before their 401(k) match is captured."</p>
+          <pre><code>- type: precedence
+  before: employer_match_401k
+  after: roth_ira</code></pre>
+          <p class="note">One of 9 precedence rules <code class="inline">mine_rules.py</code> found by comparing every pair of steps across the current <code class="inline">approved_paths</code> — this one held in all of them, automatically, with no rule hand-written first.</p>
+        </div>
+
+        <div class="rule-card">
+          <span class="rule-tag">Mutual exclusion</span>
+          <p class="statement">"Debt payoff and a credit-limit-increase suggestion must never appear on the same journey."</p>
+          <pre><code>- type: mutual_exclusion
+  steps: [pay_down_high_interest, credit_limit_increase]</code></pre>
+          <p class="note"><code class="inline">credit_limit_increase</code> isn't a step in this sample graph yet, so the miner can't find this one — a rule like this still has to be hand-written before the step exists, which is exactly the case a miner alone can't cover.</p>
+        </div>
+      </div>
+
+      <p>Neither of these needed a reviewer to look at a single row of <code class="inline">paths.json</code> — the first was found automatically; the second still took a person noticing a gap the graph has no data for yet. That's the actual division of labor: <code class="inline">mine_rules.py</code> drafts what's already true, a reviewer adds what should be true before it's ever tested by a real path.</p>
+
+      <div class="attestation">
+        <p><strong>What sign-off should mean, concretely:</strong></p>
+        <ul>
+          <li>the rule set, as written, is correct and complete for the risk you're accountable for</li>
+          <li>the new or high-risk journeys surfaced in this change's diff are acceptable</li>
+        </ul>
+        <p>A reviewer is <strong>not</strong> attesting to having read every one of the graph's thousands of possible journeys — nobody can, and a process that implies otherwise isn't oversight, it's a rubber stamp with extra steps.</p>
+      </div>
+
+      <p>Every node in the graph carries <code class="inline">rationale</code> and <code class="inline">source_doc</code>, enforced by layer 1 — treat that as the audit trail. Any flagged step should trace back to why it exists and which policy document put it there.</p>
+    </section>
+
+    <footer class="doc-footer">
+      neo4p — snapshot and validate a Neo4j planning graph with NetworkX.
+    </footer>
+  </main>
+</div>
