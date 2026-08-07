@@ -479,6 +479,60 @@
     }
     .chart-row { grid-template-columns: 74px 1fr 88px; font-size: 0.72rem; }
     .cap-line, .cap-label { display: none; }
+    .compare { grid-template-columns: 1fr; }
+  }
+
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0 0.75rem;
+  }
+  .compare-col {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1rem 1.1rem;
+  }
+  .compare-col pre {
+    margin: 0;
+    background: var(--card-bg);
+  }
+  .compare-label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 0.6rem;
+  }
+  .compare-caption {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin: 0 0 1.5rem;
+  }
+
+  .fan {
+    margin: 1.5rem 0 0.75rem;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+    font-size: 0.86rem;
+  }
+  .fan-root {
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 0.55rem;
+  }
+  .fan-branches {
+    border-left: 2px solid var(--line-strong);
+    margin-left: 0.4rem;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    color: var(--muted);
+  }
+  .fan-branches .accent {
+    color: var(--accent);
   }
 </style>
 
@@ -486,6 +540,7 @@
   <nav class="toc">
     <span class="toc-label">On this page</span>
     <a href="#why">Why this exists</a>
+    <a href="#why-graph">Why a graph, not Drools</a>
     <a href="#pipeline">Pipeline</a>
     <a href="#usage">Setup &amp; usage</a>
     <a href="#expectations">expectations.yaml</a>
@@ -509,6 +564,44 @@
       <h2>Why this exists</h2>
       <p>The graph is a directed sequence of steps — <code class="inline">emergency_fund</code> → <code class="inline">pay_down_high_interest</code> → <code class="inline">employer_match_401k</code> → … — where each edge is a condition on a client's profile. Walking the graph from an entry point for a given client produces the ordered task list they're shown.</p>
       <p>Because that output reaches real customers, a bad edge, a missing precondition, or an accidental new route through the graph is a compliance and trust problem, not just a bug. <code class="inline">validate.py</code> exists to catch that before a graph change ships, not after a client has acted on it.</p>
+    </section>
+
+    <section id="why-graph">
+      <h2>Why a graph, and not just a rules engine like Drools</h2>
+      <p>A fair challenge, and a common one: the decisions here — is a task complete, is the 401(k) match maxed, does a profile satisfy some condition — are genuinely rules. An edge's <code class="inline">condition_key</code>/<code class="inline">condition_value</code>, or a criteria node, is the same shape as a Drools production rule: a condition against client facts, deciding what happens next. Not in dispute.</p>
+
+      <div class="compare">
+        <div class="compare-col">
+          <span class="compare-label">As a Drools-style rule</span>
+          <pre><code>when
+    Client(employerMatchPct &lt; capPct)
+then
+    recommend(increase_401k_contribution);</code></pre>
+        </div>
+        <div class="compare-col">
+          <span class="compare-label">As a graph edge condition</span>
+          <pre><code>employer_match_401k -> increase_401k_contribution
+  condition_key: employer_match_status
+  condition_value: not_maxed</code></pre>
+        </div>
+      </div>
+      <p class="compare-caption">Same evaluation, same logic. The difference shows up one level up — in what these decisions compose into.</p>
+
+      <p>What a rules engine doesn't give you: not "is this criterion true for this client," but "what is the complete set of task sequences any client could ever be walked through?" That's a reachability question, not a rule-firing one — and a rule engine can't answer it by inspecting its own rule base. The only way is to simulate every fact combination and see what fires, which proves nothing beyond the cases you tried.</p>
+
+      <div class="fan">
+        <div class="fan-root">employer_match_401k</div>
+        <div class="fan-branches">
+          <div><span class="accent">→</span> roth_ira → estate_review</div>
+          <div><span class="accent">→</span> roth_ira → taxable_brokerage</div>
+          <div><span class="accent">→</span> taxable_brokerage</div>
+        </div>
+      </div>
+      <p class="compare-caption">One node, three live traversals in <code class="inline">approved_paths</code> today — which one a client takes depends only on which edge condition their facts satisfy at each fork.</p>
+
+      <p>That's the value of the graph: <code class="inline">enumerate_paths</code> turns "every traversal this can produce" into a millisecond walk, not a testing exercise. The full set is enumerable, diffable across graph versions, and checkable against invariants (<code class="inline">check_rules</code>) — because the sequence is data, not a byproduct of firing order.</p>
+
+      <p>Rules versus graph is the wrong frame — they compose. A criterion can be evaluated anywhere, Drools included, and handed to the graph as a fact. The graph doesn't replace that logic; it answers what the composition of every correct decision can produce, and proves that set matches what was approved.</p>
     </section>
 
     <section id="pipeline">

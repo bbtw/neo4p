@@ -17,6 +17,44 @@ just a bug.
 `validate.py` exists to catch that before a graph change ships, not after a
 client has acted on it.
 
+## Why a graph, and not just a rules engine like Drools
+
+A fair challenge, and one that comes up often: the individual decisions here
+— is a task complete, is the 401(k) match fully captured, does this client's
+profile satisfy some condition — are genuinely rules. An edge's
+`condition_key`/`condition_value`, or a criteria node checking something
+like "employer match maxed," is the same shape as a Drools production rule:
+a condition evaluated against client facts, deciding what happens next.
+That's not in dispute.
+
+What a rules engine doesn't give you is the layer above that: not "is this
+one criterion true for this one client," but "given every criterion that
+could ever be true, what is the complete set of task sequences a client
+could ever be walked through, and does that set match what was approved?"
+That's a question about how many independently-correct rules *compose*, not
+about whether any one of them is correct — and it's a reachability question,
+not a rule-firing question. A rule engine doesn't expose that by inspecting
+its own rule base; the only way to answer it is to simulate every
+combination of facts a client could present and see what fires, which tells
+you about the cases you thought to test, not a proof over all of them.
+
+Because a client can satisfy a graph's edges many different ways depending
+on where they are and what's true about them, there is rarely one linear
+script through it — there can be many valid traversals through the same
+graph, some overlapping, some diverging entirely at a fork. The graph turns
+"what are all of those traversals" into a millisecond walk
+(`enumerate_paths`) instead of a testing exercise: the full set is
+enumerable, diffable between graph versions, and provable against invariants
+(`check_rules`), because the sequence itself is data, not an emergent
+byproduct of which rules happened to fire in which order.
+
+This isn't rules versus graph — the two compose. A criterion's own
+evaluation, including one as involved as "is the match maxed," can
+legitimately be computed anywhere, Drools included, and handed to the graph
+as a fact. The graph doesn't replace that logic; it answers a different
+question on top of it — what can the composition of every correct decision
+ever produce, and can that set be proven to match what was signed off on.
+
 ## Pipeline
 
 ```
