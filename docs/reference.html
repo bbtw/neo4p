@@ -552,7 +552,8 @@
     <a href="#why">Why this exists</a>
     <a href="#investment">Value to the firm</a>
     <a href="#applications">Application today</a>
-    <a href="#future-applications">Future applications</a>
+    <a href="#digital-assistant">Planning digital assistant</a>
+    <a href="#semantic-layer">Semantic layer</a>
     <a href="#why-graph">Why a graph alongside rules</a>
     <a href="#pipeline">Pipeline</a>
     <a href="#usage">Setup &amp; usage</a>
@@ -565,7 +566,7 @@
     <header class="doc-header">
       <p class="eyebrow">neo4p — internal reference</p>
       <h1>The financial-planning knowledge graph: value, use, and validation</h1>
-      <p class="subtitle">Why the firm encodes task ordering as a governed knowledge graph, how customer facts traverse it without becoming graph data, and how each graph version is checked before it can influence a recommendation.</p>
+      <p class="subtitle">Why the firm encodes task ordering as a governed knowledge graph, how it can support a planning digital assistant and semantic layer, and how each graph version is checked before it can influence a recommendation.</p>
       <dl class="meta">
         <div><dt>Pipeline</dt><dd>snapshot.py → validate.py</dd></div>
         <div><dt>Path cap</dt><dd>MAX_PATHS = 5,000</dd></div>
@@ -628,47 +629,89 @@
       <p>The current product proves the graph can combine customer eligibility with firm-authored planning order. The future opportunity is to reuse those capabilities in richer applications, not merely generate more messages.</p>
     </section>
 
-    <section id="future-applications">
-      <h2>Future applications the KG can support</h2>
-      <p class="lede">The planning graph can become a shared decision layer for customer experiences, advisor tools, operations, and governance. These are distinct applications the firm could build; none should be read as already implemented.</p>
+    <section id="digital-assistant">
+      <h2>How a knowledge graph supports a planning digital assistant</h2>
+      <p class="lede">A planning digital assistant would use the same planning knowledge as next-best messages to help an advisor understand a customer's position, identify appropriate actions, explain the ordering, and explore alternatives—while leaving judgment and the final recommendation with the advisor.</p>
 
-      <h3>Customer and advisor applications</h3>
+      <div class="flow">
+        <div class="flow-box"><span class="name">Advisor question</span><span class="note">+ query-time customer facts</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><span class="name">Semantic service</span><span class="note">map terms + approved queries</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><span class="name">Planning KG</span><span class="note">tasks, criteria, order</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><span class="name">Grounded answer</span><span class="note">actions + evidence</span></div>
+      </div>
+      <p class="compare-caption">Customer facts remain in their source systems and are supplied only for the request. The assistant receives a structured planning result rather than unrestricted access to customer records or raw graph traversal. The semantic service is the governed interface defined in <a href="#semantic-layer">the next section</a>.</p>
+
+      <h3>What the assistant could support</h3>
       <dl class="field-list">
-        <dt>Personalized financial roadmap</dt>
-        <dd><strong>Experience:</strong> a customer sees completed, current, and upcoming planning tasks as a coherent roadmap rather than isolated messages. <strong>KG use:</strong> traverse forward from the current task to applicable goals or terminal tasks and explain the order of the remaining plan.</dd>
+        <dt>Prepare for a customer meeting</dt>
+        <dd>Summarize the customer's current planning position, completed tasks, likely next actions, and unresolved gaps using the graph's ordered task model.</dd>
 
-        <dt>Advisor planning copilot</dt>
-        <dd><strong>Experience:</strong> an advisor sees the recommended next action, viable alternatives, unmet prerequisites, and the policy rationale in one workspace. <strong>KG use:</strong> combine eligible-task filtering with forward and reverse traversal, then attach each task's rationale and source-document reference.</dd>
+        <dt>Recommend the next advisor action</dt>
+        <dd>Filter for eligible tasks, use forward traversal to preserve planning order, and return the recommended action plus any viable alternatives.</dd>
 
-        <dt>Goal and life-event planner</dt>
-        <dd><strong>Experience:</strong> a customer or advisor selects a goal—buying a home, retiring, starting a family, changing jobs—and sees the work that goal introduces or reprioritizes. <strong>KG use:</strong> connect goals and life events to affected tasks, then traverse prerequisites and applicable routes using supplied customer facts.</dd>
+        <dt>Explain “why this?” and “why not that?”</dt>
+        <dd>Return the matched path, unmet prerequisites, rejected branch criteria, task rationale, and source-document references so the advisor can inspect the basis for the answer.</dd>
 
-        <dt>Progressive onboarding and data collection</dt>
-        <dd><strong>Experience:</strong> the application asks only for information needed to make the next planning decision instead of presenting a long generic questionnaire. <strong>KG use:</strong> inspect unmatched branches and missing <code class="inline">condition_key</code> values to choose the next useful question.</dd>
+        <dt>Show what would change the answer</dt>
+        <dd>Identify the missing fact or prerequisite task blocking an alternative, then re-run the traversal for an advisor-led what-if scenario without changing the customer record.</dd>
 
-        <dt>Proactive planning alerts</dt>
-        <dd><strong>Experience:</strong> when an external customer fact changes, the firm can identify newly relevant tasks and alert the customer or advisor. <strong>KG use:</strong> re-run eligibility and traversal with the new facts; customer records remain in their source systems.</dd>
+        <dt>Look beyond the immediate message</dt>
+        <dd>Traverse forward and backward to show how the next action fits into a larger plan, what must happen first, and which later tasks it can unlock.</dd>
       </dl>
 
-      <h3>Operating and governance applications</h3>
-      <dl class="field-list">
-        <dt>Planning case and workflow orchestration</dt>
-        <dd><strong>Application:</strong> turn an approved plan into sequenced work, assign the next task, and assemble required documents and handoffs. <strong>KG use:</strong> extend tasks with owner, document, workflow, and dependency relationships, then continue traversal beyond recommendation selection.</dd>
+      <h3>A grounded response contract</h3>
+      <p>The graph service should return structured planning context before any language model writes an answer:</p>
+      <pre><code>recommended_task
+eligible_alternatives
+completed_and_unmet_prerequisites
+matched_and_rejected_criteria
+rationale_and_source_documents
+graph_version</code></pre>
+      <p>A language model can interpret the advisor's question and turn this result into a useful explanation. It should not invent eligibility, ordering, or policy. Those decisions stay in the governed semantic layer and knowledge graph, where they can be tested, versioned, and reviewed.</p>
+      <p>Of this contract, only the forward traversal exists in this repository — <code class="inline">walk()</code> returns the task sequence for a supplied profile. Eligible alternatives, prerequisite status, matched-and-rejected criteria, and backward traversal are service capabilities that would have to be built; nothing in the current scripts computes them.</p>
+    </section>
 
-        <dt>Compliance and policy change-impact workbench</dt>
-        <dd><strong>Application:</strong> show reviewers which tasks, messages, customer routes, and downstream policies could change before a graph update is approved. <strong>KG use:</strong> traverse upstream dependencies and downstream descendants, then compare affected paths across graph versions.</dd>
+    <section id="semantic-layer">
+      <h2>What “semantic layer” should mean here</h2>
+      <p class="lede">Working definition for discussion: the planning semantic layer is the governed interface between firm applications and the underlying planning knowledge. It gives stable business meaning to tasks, criteria, customer facts, ordering, rationale, and provenance regardless of where the raw data is stored or which application asks the question.</p>
 
-        <dt>Recommendation explanation and audit service</dt>
-        <dd><strong>Application:</strong> answer why a recommendation was made and reproduce the decision later. <strong>KG use:</strong> retain the selected path, matched criteria, graph version, and external fact references; replay them against the corresponding snapshot without storing the customer record in Neo4j.</dd>
+      <div class="compare">
+        <div class="compare-col">
+          <span class="compare-label">The semantic layer includes</span>
+          <ul>
+            <li>a canonical vocabulary for tasks, criteria, goals, facts, and relationships</li>
+            <li>mappings from source-system fields into that vocabulary</li>
+            <li>approved query contracts such as eligible tasks, next task, prerequisites, and explanation</li>
+            <li>rationale, source references, graph version, and other provenance</li>
+            <li>access controls, release governance, and audit behavior</li>
+          </ul>
+        </div>
+        <div class="compare-col">
+          <span class="compare-label">It is not</span>
+          <ul>
+            <li>the Neo4j database by itself</li>
+            <li>a new store for customer records</li>
+            <li>an LLM or vector-search layer that decides what the planning model means</li>
+            <li>permission for every application to write its own Cypher and interpretation</li>
+            <li>a replacement for suitability rules or advisor judgment</li>
+          </ul>
+        </div>
+      </div>
 
-        <dt>Planning simulation and coverage lab</dt>
-        <dd><strong>Application:</strong> planners test new policy or task designs against synthetic customer situations before release. <strong>KG use:</strong> traverse scenario profiles through proposed graph versions and surface dead ends, ambiguous branches, unreachable goals, and changed routes.</dd>
+      <p>The KG is the durable model at the center of the semantic layer. A service around it should map external customer facts into canonical planning terms, expose approved business questions, and return structured answers with provenance. Applications—including the assistant—consume those contracts instead of depending on Neo4j labels, relationship names, or source-system field names.</p>
 
-        <dt>Portfolio opportunity and service intelligence</dt>
-        <dd><strong>Application:</strong> identify common planning gaps, bottlenecks, and newly eligible services across the customer base. <strong>KG use:</strong> aggregate traversal outcomes outside Neo4j by stable task and criterion identifiers, then map those aggregate results back onto the planning graph.</dd>
-      </dl>
-
-      <p>Each application reuses the same governed task definitions, ordering, criteria, rationale, and source references. The economic leverage comes from building multiple experiences on one planning model while customer data stays in the systems designed to hold it.</p>
+      <h3>Decisions still to make</h3>
+      <ul>
+        <li>How far the canonical model extends beyond tasks and criteria into goals, life events, documents, owners, and workflows.</li>
+        <li>Which system owns fact normalization—for example, turning raw account data into <code class="inline">employer_match_status</code>.</li>
+        <li>Which business queries become supported contracts and what each one guarantees.</li>
+        <li>How graph versions, policy effective dates, source documents, and recommendation replay are governed.</li>
+        <li>Where authorization, advisor entitlements, customer consent, and audit logging are enforced.</li>
+      </ul>
+      <p>Until those decisions are made, “semantic layer” should be treated as a proposed operating model, not simply a new name for the graph database.</p>
     </section>
 
     <section id="why-graph">

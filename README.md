@@ -5,9 +5,9 @@ tasks get suggested to a client — snapshots it to GraphML, and validates it
 before it's allowed to influence what a real customer sees.
 
 See [docs/reference.html](docs/reference.html) for the full writeup: why this
-exists, current and future applications, why a graph complements a rules
-engine, what each validator layer checks, and how a reviewer signs off on a
-graph with combinatorial paths.
+exists, the advisor-copilot opportunity and semantic-layer framing, future
+applications, why a graph complements a rules engine, what each validator
+layer checks, and how a reviewer signs off on a graph with combinatorial paths.
 
 ## Why this exists
 
@@ -22,6 +22,9 @@ Neo4j stores this planning knowledge graph, not customer records. Today it
 powers the firm's next-best-message application: customer facts supplied at
 traversal time filter the eligible task candidates, and the customer's current
 step plus the graph's ordering determine which candidate should come next.
+The next proposed high-value use is an advisor copilot backed by a governed
+planning semantic layer: the KG supplies ordered, explainable planning context,
+while a service maps customer facts and exposes approved business queries.
 Because this output reaches real customers, a bad edge, a missing
 precondition, or an accidental new route through the graph is a compliance
 and trust problem, not just a bug.
