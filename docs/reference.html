@@ -1,4 +1,9 @@
-<title>neo4p — Graph Validation Reference</title>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>neo4p — Financial Planning Knowledge Graph Reference</title>
 <style>
   :root {
     --paper: #F2F4F0;
@@ -479,7 +484,6 @@
     }
     .chart-row { grid-template-columns: 74px 1fr 88px; font-size: 0.72rem; }
     .cap-line, .cap-label { display: none; }
-    .compare { grid-template-columns: 1fr; }
   }
 
   .compare {
@@ -534,13 +538,22 @@
   .fan-branches .accent {
     color: var(--accent);
   }
+
+  @media (max-width: 900px) {
+    .compare { grid-template-columns: 1fr; }
+  }
 </style>
+</head>
+<body>
 
 <div class="page">
   <nav class="toc">
     <span class="toc-label">On this page</span>
     <a href="#why">Why this exists</a>
-    <a href="#why-graph">Why a graph, not Drools</a>
+    <a href="#investment">Value to the firm</a>
+    <a href="#applications">Application today</a>
+    <a href="#future-applications">Future applications</a>
+    <a href="#why-graph">Why a graph alongside rules</a>
     <a href="#pipeline">Pipeline</a>
     <a href="#usage">Setup &amp; usage</a>
     <a href="#expectations">expectations.yaml</a>
@@ -551,8 +564,8 @@
   <main>
     <header class="doc-header">
       <p class="eyebrow">neo4p — internal reference</p>
-      <h1>Validating a planning graph before it reaches a client</h1>
-      <p class="subtitle">How a Neo4j recommendation graph gets snapshotted, checked, and signed off before it's allowed to suggest a financial-planning task to a real customer.</p>
+      <h1>The financial-planning knowledge graph: value, use, and validation</h1>
+      <p class="subtitle">Why the firm encodes task ordering as a governed knowledge graph, how customer facts traverse it without becoming graph data, and how each graph version is checked before it can influence a recommendation.</p>
       <dl class="meta">
         <div><dt>Pipeline</dt><dd>snapshot.py → validate.py</dd></div>
         <div><dt>Path cap</dt><dd>MAX_PATHS = 5,000</dd></div>
@@ -562,13 +575,105 @@
 
     <section id="why">
       <h2>Why this exists</h2>
-      <p>The graph is a directed sequence of tasks — <code class="inline">emergency_fund</code> → <code class="inline">pay_down_high_interest</code> → <code class="inline">employer_match_401k</code> → … — connected by <code class="inline">HAS_CHILD</code> edges. Where a task's next step depends on the client, one or more <code class="inline">CRITERIA_BRANCH</code> edges — each carrying a <code class="inline">condition_key</code>/<code class="inline">condition_value</code> — fan out from that task to a <code class="inline">CriteriaNode</code> per branch ("does the client have an emergency fund on hand?"), and each criteria node's own <code class="inline">HAS_CHILD</code> edge points at the task that branch resolves to. Walking the graph from an entry point for a given client produces the ordered task list they're shown.</p>
+      <p>The knowledge graph is a directed planning workflow: task nodes such as <code class="inline">emergency_fund</code>, <code class="inline">pay_down_high_interest</code>, and <code class="inline">employer_match_401k</code> encode the firm's intended order of financial work. <code class="inline">HAS_CHILD</code> relationships encode progression. Where progression depends on a customer fact, a <code class="inline">CRITERIA_BRANCH</code> relationship carries a <code class="inline">condition_key</code>/<code class="inline">condition_value</code> and points to a <code class="inline">CriteriaNode</code>; that node's <code class="inline">HAS_CHILD</code> relationship points to the task selected by the branch.</p>
+      <p>The graph stores planning knowledge, not customer records. At request time, an application supplies the customer facts needed by the relevant branches and uses them as traversal context. The scenario profiles passed to <code class="inline">walk()</code> in this repository model that separation: the facts are inputs to a traversal and are never written into the graph or its snapshot.</p>
       <p>Because that output reaches real customers, a bad edge, a missing precondition, or an accidental new route through the graph is a compliance and trust problem, not just a bug. <code class="inline">validate.py</code> exists to catch that before a graph change ships, not after a client has acted on it.</p>
     </section>
 
+    <section id="investment">
+      <h2>What the firm is investing in</h2>
+      <p>The database footprint is deliberately bounded: Neo4j holds the planning knowledge graph—tasks, ordering, branch criteria, rationales, and source-document references. Customer data remains in its systems of record and is supplied only when an application traverses the graph. The stored graph therefore grows with the planning model, not linearly with the customer base. Query volume still grows with use, but Neo4j does not become a second customer-data platform.</p>
+      <dl class="field-list">
+        <dt>Institutional planning knowledge</dt>
+        <dd>The firm's view of what work should precede what is explicit, inspectable data rather than ordering hidden across application code and operational playbooks.</dd>
+        <dt>One governed source for multiple products</dt>
+        <dd>Eligibility filtering and next-step guidance can use the same tasks, criteria, and ordering instead of maintaining two rule sets that can drift apart.</dd>
+        <dt>Explainability and change control</dt>
+        <dd>A result can be traced to a task, the branch that selected it, and the task's rationale and source-document reference. A graph snapshot makes structural changes reviewable and reproducible.</dd>
+        <dt>Impact analysis</dt>
+        <dd>Because ordering is explicit, the firm can enumerate structural routes, compare graph versions, and test whether a change introduces an unapproved route or breaks an invariant.</dd>
+      </dl>
+      <p>The meaningful investment is therefore not large-scale customer storage. It is the curation and governance of the firm's planning model: agreeing on task definitions, ordering, eligibility criteria, rationale, ownership, and review. That is also where most of the durable value sits.</p>
+    </section>
+
+    <section id="applications">
+      <h2>Application today: next-best messages</h2>
+      <p>Today the firm uses the knowledge graph to decide which planning message or task should be presented next. Bulk eligibility filtering and next-step traversal are two internal query patterns that power this one application; they are not separate customer or advisor products.</p>
+      <div class="flow">
+        <div class="flow-box"><span class="name">Customer systems</span><span class="note">facts remain here</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><span class="name">Candidate filter</span><span class="note">eligible tasks</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><span class="name">Sequence traversal</span><span class="note">appropriate next task</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box"><span class="name">Next-best message</span><span class="note">customer experience</span></div>
+      </div>
+      <p class="compare-caption">Customer facts are query-time context for eligibility and traversal; they are not persisted as nodes or relationships in the planning graph.</p>
+      <div class="layer-cards">
+        <div class="layer-card">
+          <div class="layer-head">
+            <span class="layer-num">1</span>
+            <h3>Generate eligible candidates</h3>
+          </div>
+          <p>Evaluate supplied customer facts against task prerequisites and branch criteria to produce the governed set of messages that could be appropriate now.</p>
+        </div>
+        <div class="layer-card">
+          <div class="layer-head">
+            <span class="layer-num">2</span>
+            <h3>Choose the sequence-aware next message</h3>
+          </div>
+          <p>Use the customer's current task and the graph's ordering to select the appropriate next candidate. The graph prevents a locally eligible message from being presented out of planning order.</p>
+        </div>
+      </div>
+      <p>The current product proves the graph can combine customer eligibility with firm-authored planning order. The future opportunity is to reuse those capabilities in richer applications, not merely generate more messages.</p>
+    </section>
+
+    <section id="future-applications">
+      <h2>Future applications the KG can support</h2>
+      <p class="lede">The planning graph can become a shared decision layer for customer experiences, advisor tools, operations, and governance. These are distinct applications the firm could build; none should be read as already implemented.</p>
+
+      <h3>Customer and advisor applications</h3>
+      <dl class="field-list">
+        <dt>Personalized financial roadmap</dt>
+        <dd><strong>Experience:</strong> a customer sees completed, current, and upcoming planning tasks as a coherent roadmap rather than isolated messages. <strong>KG use:</strong> traverse forward from the current task to applicable goals or terminal tasks and explain the order of the remaining plan.</dd>
+
+        <dt>Advisor planning copilot</dt>
+        <dd><strong>Experience:</strong> an advisor sees the recommended next action, viable alternatives, unmet prerequisites, and the policy rationale in one workspace. <strong>KG use:</strong> combine eligible-task filtering with forward and reverse traversal, then attach each task's rationale and source-document reference.</dd>
+
+        <dt>Goal and life-event planner</dt>
+        <dd><strong>Experience:</strong> a customer or advisor selects a goal—buying a home, retiring, starting a family, changing jobs—and sees the work that goal introduces or reprioritizes. <strong>KG use:</strong> connect goals and life events to affected tasks, then traverse prerequisites and applicable routes using supplied customer facts.</dd>
+
+        <dt>Progressive onboarding and data collection</dt>
+        <dd><strong>Experience:</strong> the application asks only for information needed to make the next planning decision instead of presenting a long generic questionnaire. <strong>KG use:</strong> inspect unmatched branches and missing <code class="inline">condition_key</code> values to choose the next useful question.</dd>
+
+        <dt>Proactive planning alerts</dt>
+        <dd><strong>Experience:</strong> when an external customer fact changes, the firm can identify newly relevant tasks and alert the customer or advisor. <strong>KG use:</strong> re-run eligibility and traversal with the new facts; customer records remain in their source systems.</dd>
+      </dl>
+
+      <h3>Operating and governance applications</h3>
+      <dl class="field-list">
+        <dt>Planning case and workflow orchestration</dt>
+        <dd><strong>Application:</strong> turn an approved plan into sequenced work, assign the next task, and assemble required documents and handoffs. <strong>KG use:</strong> extend tasks with owner, document, workflow, and dependency relationships, then continue traversal beyond recommendation selection.</dd>
+
+        <dt>Compliance and policy change-impact workbench</dt>
+        <dd><strong>Application:</strong> show reviewers which tasks, messages, customer routes, and downstream policies could change before a graph update is approved. <strong>KG use:</strong> traverse upstream dependencies and downstream descendants, then compare affected paths across graph versions.</dd>
+
+        <dt>Recommendation explanation and audit service</dt>
+        <dd><strong>Application:</strong> answer why a recommendation was made and reproduce the decision later. <strong>KG use:</strong> retain the selected path, matched criteria, graph version, and external fact references; replay them against the corresponding snapshot without storing the customer record in Neo4j.</dd>
+
+        <dt>Planning simulation and coverage lab</dt>
+        <dd><strong>Application:</strong> planners test new policy or task designs against synthetic customer situations before release. <strong>KG use:</strong> traverse scenario profiles through proposed graph versions and surface dead ends, ambiguous branches, unreachable goals, and changed routes.</dd>
+
+        <dt>Portfolio opportunity and service intelligence</dt>
+        <dd><strong>Application:</strong> identify common planning gaps, bottlenecks, and newly eligible services across the customer base. <strong>KG use:</strong> aggregate traversal outcomes outside Neo4j by stable task and criterion identifiers, then map those aggregate results back onto the planning graph.</dd>
+      </dl>
+
+      <p>Each application reuses the same governed task definitions, ordering, criteria, rationale, and source references. The economic leverage comes from building multiple experiences on one planning model while customer data stays in the systems designed to hold it.</p>
+    </section>
+
     <section id="why-graph">
-      <h2>Why a graph, and not just a rules engine like Drools</h2>
-      <p>A fair challenge, and a common one: the decisions here — is a task complete, is the 401(k) match maxed, does a profile satisfy some condition — are genuinely rules. A <code class="inline">CRITERIA_BRANCH</code> edge's <code class="inline">condition_key</code>/<code class="inline">condition_value</code>, evaluated at a criteria node, is the same shape as a Drools production rule: a condition against client facts, deciding what happens next. Not in dispute.</p>
+      <h2>Why a graph alongside rules</h2>
+      <p>The decisions here—is a task complete, is the 401(k) match maxed, does a profile satisfy a condition—are genuinely rules. The criteria node does not evaluate a customer. At traversal time, application logic compares a supplied fact with the <code class="inline">condition_key</code>/<code class="inline">condition_value</code> on a <code class="inline">CRITERIA_BRANCH</code>. A rules engine such as Drools could produce the same normalized fact or make the same decision.</p>
 
       <div class="compare">
         <div class="compare-col">
@@ -586,9 +691,9 @@ then
 (CriteriaNode) -HAS_CHILD-> increase_401k_contribution</code></pre>
         </div>
       </div>
-      <p class="compare-caption">Same evaluation, same logic. The difference shows up one level up — in what these decisions compose into.</p>
+      <p class="compare-caption">The graph example assumes the raw percentage has already been normalized to <code class="inline">employer_match_status</code>. The decision can live in either place; the graph's role is to make the resulting ordering and reachability explicit.</p>
 
-      <p>What a rules engine doesn't give you: not "is this criterion true for this client," but "what is the complete set of task sequences any client could ever be walked through?" That's a reachability question, not a rule-firing one — and a rule engine can't answer it by inspecting its own rule base. The only way is to simulate every fact combination and see what fires, which proves nothing beyond the cases you tried.</p>
+      <p>A rules engine can implement the individual decisions. The graph earns its place because it represents how those decisions compose: what can follow a task, which tasks are reachable, and which structural routes a graph version contains. In a rules-only design, that ordering is often implicit in rule-firing dependencies or duplicated in another model, so reachability and change-impact questions require simulation, static analysis, or a separately maintained dependency map. They are not impossible; they are simply less direct than traversing explicit relationships.</p>
 
       <div class="fan">
         <div class="fan-root">employer_match_401k</div>
@@ -598,29 +703,29 @@ then
           <div><span class="accent">→</span> taxable_brokerage</div>
         </div>
       </div>
-      <p class="compare-caption">One node, three live traversals in <code class="inline">approved_paths</code> today — which one a client takes depends only on which edge condition their facts satisfy at each fork.</p>
+      <p class="compare-caption">One task, three structurally permitted continuations in the sample <code class="inline">approved_paths</code>. A customer's actual continuation depends on which branch conditions match the facts supplied at each fork.</p>
 
-      <p>That's the value of the graph: <code class="inline">enumerate_paths</code> turns "every traversal this can produce" into a millisecond walk, not a testing exercise. The full set is enumerable, diffable across graph versions, and checkable against invariants (<code class="inline">check_rules</code>) — because the sequence is data, not a byproduct of firing order.</p>
+      <p>That is the graph's technical value in this repository: <code class="inline">enumerate_paths</code> lists every simple structural route up to the 5,000-path safety cap. That set is diffable across graph versions and checkable against invariants with <code class="inline">check_rules</code>, because ordering is data rather than a byproduct of firing order. Enumeration alone does not prove that every route's branch conditions are jointly satisfiable; named scenario checks provide separate evidence for specific customer profiles.</p>
 
-      <p>Rules versus graph is the wrong frame — they compose. A criterion can be evaluated anywhere, Drools included, and handed to the graph as a fact. The graph doesn't replace that logic; it answers what the composition of every correct decision can produce, and proves that set matches what was approved.</p>
+      <p>Rules and graph therefore compose. Rules determine eligibility from customer facts; the graph governs ordering and reachability; validation checks the resulting planning model. The graph database does not make the financial decisions correct by itself—the value comes from making the firm's decisions explicit, reusable, and governable.</p>
     </section>
 
     <section id="pipeline">
       <h2>Pipeline</h2>
       <div class="flow">
-        <div class="flow-box"><span class="name">Neo4j</span><span class="note">live planning graph</span></div>
+        <div class="flow-box"><span class="name">Neo4j</span><span class="note">planning KG only</span></div>
         <div class="flow-arrow">→</div>
         <div class="flow-box"><span class="name">snapshot.py</span><span class="note">freeze &amp; hash</span></div>
         <div class="flow-arrow">→</div>
         <div class="flow-stack">
           <div class="flow-box"><span class="name">graph.graphml</span></div>
-          <div class="flow-box"><span class="name">manifest.json</span><span class="note">when, source, commit, sha256</span></div>
+          <div class="flow-box"><span class="name">manifest.json</span><span class="note">when, source, HEAD commit, sha256</span></div>
         </div>
         <div class="flow-arrow">→</div>
         <div class="flow-box"><span class="name">validate.py</span><span class="note">checked against expectations.yaml</span></div>
         <div class="flow-arrow">→</div>
         <div class="flow-stack">
-          <div class="flow-box"><span class="name">paths.json</span><span class="note">every journey found</span></div>
+          <div class="flow-box"><span class="name">paths.json</span><span class="note">structural routes found</span></div>
           <div class="flow-box"><span class="name">validation.json</span><span class="note">pass / fail report</span></div>
         </div>
       </div>
@@ -637,7 +742,7 @@ uv run python validate.py snapshots/sample/graph.graphml expectations.yaml</code
       <pre><code>cd src
 NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=... uv run python snapshot.py
 uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations.yaml</code></pre>
-      <p><code class="inline">validate.py</code> writes <code class="inline">paths.json</code> and <code class="inline">validation.json</code> into the snapshot directory and exits 1 on failure — safe to run in CI.</p>
+      <p><code class="inline">validate.py</code> writes <code class="inline">paths.json</code> and <code class="inline">validation.json</code> into the snapshot directory and exits 1 on failure, so it is suitable as a CI gate. The workflow in this repository validates the generated sample graph; gating a live Neo4j graph requires the same command to run against a real snapshot in the firm's deployment process.</p>
     </section>
 
     <section id="expectations">
@@ -645,17 +750,19 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
       <p>The file every validation run checks the graph against. Kept in version control next to the code, so a graph change that breaks an expected recommendation fails the build instead of reaching a client.</p>
       <dl class="field-list">
         <dt>expected_entries / expected_terminals</dt>
-        <dd>The only steps allowed to have no predecessor / no successor. A new one showing up means a route changed without anyone intending it to.</dd>
+        <dd>The exact allowed entry points, and the allowed set of dead ends. A new one showing up means a route changed without anyone intending it to.</dd>
         <dt>approved_paths</dt>
-        <dd>Every client journey the graph is allowed to produce. Regenerated from <code class="inline">paths.json</code> when a change is intentional — the diff on this list <em>is</em> the record of which journeys a given change added or removed.</dd>
+        <dd>Every simple structural route the graph is allowed to contain. Regenerated from <code class="inline">paths.json</code> when a change is intentional—the diff on this list is the record of which routes a change added or removed.</dd>
+        <dt>rules</dt>
+        <dd>Precedence and mutual-exclusion invariants checked against the structural routes enumerated in each validation run.</dd>
         <dt>scenarios</dt>
-        <dd>Concrete client profiles with the step sequence they must produce, for spot-checking behavior the other checks can't see.</dd>
+        <dd>Concrete, supplied customer profiles with the task sequence they must produce, for spot-checking conditional behavior the structural checks cannot see.</dd>
       </dl>
     </section>
 
     <section id="validators">
       <h2>The validators</h2>
-      <p><code class="inline">validate.py</code> runs four independent layers. Each catches a different class of problem; none of them subsumes the others.</p>
+      <p><code class="inline">validate.py</code> runs four complementary layers. Each catches a different class of problem; path and rule checks both depend on successful structural path enumeration.</p>
 
       <div class="layer-cards">
         <div class="layer-card">
@@ -668,7 +775,7 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
           <ul>
             <li>acyclic — a recommendation flow can never loop</li>
             <li>entry points match <code class="inline">expected_entries</code> — nothing silently added or removed</li>
-            <li>every node reachable from an entry point — no orphaned step</li>
+            <li>every node reachable from an entry point — no orphaned node</li>
             <li>every dead end is a declared terminal, not an accident</li>
             <li>every task node carries <code class="inline">rationale</code> + <code class="inline">source_doc</code></li>
             <li>every <code class="inline">CRITERIA_BRANCH</code> edge carries <code class="inline">condition_key</code> + <code class="inline">condition_value</code></li>
@@ -682,8 +789,8 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
             <h3>Path enumeration</h3>
             <span class="fn">enumerate_paths() / check_paths()</span>
           </div>
-          <p>Every simple entry-to-terminal route the graph can currently produce, diffed against <code class="inline">approved_paths</code>. Flags any journey nobody approved, and any approved journey that's no longer possible.</p>
-          <p class="verdict">Exhaustive and exact — when it passes, "every journey this graph can produce" and "every journey someone signed off on" are provably the same set. Also the layer that doesn't scale: past <code class="inline">MAX_PATHS</code> (5,000), it refuses to enumerate rather than hang or silently truncate.</p>
+          <p>Every simple entry-to-terminal route in the graph topology, diffed against <code class="inline">approved_paths</code>. Flags any structural route nobody approved, and any approved route that's no longer present.</p>
+          <p class="verdict">Exhaustive and exact for graph topology when it completes. It does not test whether all conditions along every route can be satisfied by one customer profile. Past <code class="inline">MAX_PATHS</code> (5,000), it refuses to enumerate rather than hang or silently truncate.</p>
         </div>
 
         <div class="layer-card">
@@ -692,8 +799,8 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
             <h3>Rules</h3>
             <span class="fn">check_rules()</span>
           </div>
-          <p>Every route checked against approved invariants — precedence and mutual-exclusion — instead of an exact path list.</p>
-          <p class="verdict">Covers journeys that don't exist yet, not just the ones enumerated today. Candidates are bootstrapped from the current path list by <code class="inline">mine_rules.py</code> and reviewed before they're added to <code class="inline">expectations.yaml</code>'s <code class="inline">rules:</code> list — see <a href="#signoff">Signing off</a>, below.</p>
+          <p>Every enumerated structural route is checked against approved invariants. A precedence rule requires two tasks to appear in the specified order when both are present; a mutual-exclusion rule prohibits the named tasks from appearing together.</p>
+          <p class="verdict">A retained rule is automatically applied to newly enumerated routes in future validation runs. It does not evaluate routes that were not enumerated in the current run. Candidates are bootstrapped from the current path list by <code class="inline">mine_rules.py</code> and reviewed before being added to <code class="inline">expectations.yaml</code>—see <a href="#signoff">Signing off</a>.</p>
         </div>
 
         <div class="layer-card">
@@ -702,7 +809,7 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
             <h3>Scenario</h3>
             <span class="fn">check_scenarios()</span>
           </div>
-          <p>Does a handful of named, concrete client profiles produce the expected step sequence?</p>
+          <p>Does a handful of named, concrete customer profiles, supplied as traversal inputs, produce the expected task sequence?</p>
           <p class="verdict">Not exhaustive. Exists because a graph can pass layers 1–3 — correctly shaped, only approved paths, no invariant broken — and still route an actual real-world profile down the wrong <em>one</em> of those approved paths.</p>
         </div>
       </div>
@@ -730,7 +837,7 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
         </div>
       </div>
 
-      <p>At real graph sizes — hundreds of nodes, hundreds of edges — the honest number of distinct journeys is easily in the thousands. <code class="inline">MAX_PATHS</code> exists so nobody is ever asked, even accidentally, to review past that point by hand: the script fails loudly instead of quietly succeeding on an unreviewable graph.</p>
+      <p>At real graph sizes—hundreds of nodes and edges—the number of distinct structural routes can reach the thousands. <code class="inline">MAX_PATHS</code> bounds the computation: beyond 5,000 routes the script fails loudly instead of hanging or silently truncating. A graph above that cap needs a different validation strategy before this pipeline can approve it.</p>
 
       <p>Which means "read every path and sign off on each one" cannot be the review process — asking for it produces the opposite of oversight, because nobody actually reads 5,000 sequences, and the sign-off becomes a formality instead of a real check. The review has to be scoped down to something a person can hold in their head and genuinely mean their approval of. Three tiers do that:</p>
 
@@ -739,21 +846,21 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
           <span class="tier-num">1</span>
           <div>
             <h3>You approve rules, not paths.</h3>
-            <p>The thing worth a reviewer's judgment is not "is journey #4,812 acceptable" but the invariant behind it — <em>a client must never be told to increase investing before their emergency fund is confirmed funded</em>; <em>debt payoff and credit-limit-increase suggestions must never appear on the same journey</em>; <em>any journey touching a tax-advantaged withdrawal must be preceded by a tax-bracket check</em>. Ordinary suitability-style statements, the kind of judgment a compliance reviewer already makes — and there are a few hundred of them for this graph, not a few thousand paths.</p>
+            <p>The thing worth a reviewer's judgment is not "is journey #4,812 acceptable" but the invariant behind it—<em>when emergency-fund and investing tasks both appear, the emergency-fund task comes first</em>; <em>debt payoff and credit-limit-increase suggestions must never appear on the same journey</em>; <em>when a tax-bracket check and tax-advantaged withdrawal both appear, the check comes first</em>. These suitability-style statements are the kind of judgment a compliance reviewer already makes, and a curated rule set is typically much smaller than the route set it governs.</p>
           </div>
         </li>
         <li>
           <span class="tier-num">2</span>
           <div>
-            <h3>The rules are enforced automatically, every time.</h3>
-            <p>Once a rule is written down, it gets checked against every graph change in CI, forever, the same way <code class="inline">check_structure</code> and <code class="inline">check_paths</code> already run — without depending on anyone's attention on any given day. This is what makes the process <em>reliable</em>, not just honest at the moment of signing.</p>
+            <h3>The rules are machine-checkable on every graph change.</h3>
+            <p>Once a rule is written down, <code class="inline">check_rules</code> can apply it consistently to each successfully enumerated graph version. The current CI workflow proves this process on the sample graph; the same validation must be wired into the live graph's change process before claiming it as a production gate.</p>
           </div>
         </li>
         <li>
           <span class="tier-num">3</span>
           <div>
             <h3>You only see raw paths when something is new and high-risk.</h3>
-            <p><code class="inline">paths.json</code> and <code class="inline">approved_paths</code> give an exact diff on every change: which journeys are newly possible, which previously-approved ones vanished. Filtered to journeys touching a flagged high-risk step — money movement, tax elections, debt restructuring — that diff is realistically a handful of sequences per change: small enough to actually read, not skim.</p>
+            <p><code class="inline">paths.json</code> and <code class="inline">approved_paths</code> make it possible to identify which structural routes are new and which approved routes vanished. A review process can then scope attention to routes touching high-risk tasks such as money movement, tax elections, or debt restructuring. The current scripts emit the full route set; risk-based filtering is a review step, not an implemented validator feature.</p>
           </div>
         </li>
       </ol>
@@ -765,9 +872,9 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
         <li><strong>State it in plain language.</strong> A sentence a compliance reviewer would recognize as an ordinary suitability rule, not a graph-theory statement.</li>
         <li><strong>Write it as one of the two shapes <code class="inline">check_rules()</code> understands</strong> — <code class="inline">precedence</code> (a always before b) or <code class="inline">mutual_exclusion</code> (a and b never together) — the same small vocabulary <code class="inline">mine_rules.py</code> mines automatically.</li>
         <li><strong>The reviewer approves the sentence and the rule together</strong> — not by re-deriving it, but by confirming the rule actually says what the sentence claims.</li>
-        <li><strong>It runs in CI on every future change</strong>, so it covers paths that don't exist yet, not just the ones that existed on the day of review.</li>
+        <li><strong>Run it on every future graph change.</strong> Once validation is part of the live graph's change process, the retained rule covers newly enumerated routes, not just those that existed on the day of review.</li>
       </ol>
-      <p>That last step is the actual reason rules beat paths, not just a convenience. A path-by-path review only certifies the paths that exist on the day of the review — the next fork added six months later produces journeys nobody in that review ever saw. A rule, once approved, automatically governs every path the graph will ever produce, including ones that don't exist yet, because it's checked at build time forever, not read once.</p>
+      <p>That last step is why retained rules complement path review. A path-by-path review only certifies the routes that exist on the day of review; a retained rule can be re-applied to newly enumerated routes after a future fork is added. That protection depends on keeping the rule and running validation as part of the graph's change process.</p>
 
       <p><code class="inline">mine_rules.py</code> automates step one. Point it at a verified graph's <code class="inline">paths.json</code> and it mines every precedence and mutual-exclusion invariant that already holds — a drafted rule set to review, instead of a blank page:</p>
       <pre><code>uv run python mine_rules.py snapshots/sample/paths.json
@@ -778,11 +885,12 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
       <div class="rule-examples">
         <div class="rule-card">
           <span class="rule-tag">Precedence</span>
-          <p class="statement">"No client is shown a Roth IRA or taxable-brokerage suggestion before their 401(k) match is captured."</p>
+          <p class="statement">"When a route contains both the 401(k)-match and Roth IRA tasks, the match task comes first."</p>
           <pre><code>- type: precedence
   before: employer_match_401k
   after: roth_ira</code></pre>
-          <p class="note">One of 9 precedence rules <code class="inline">mine_rules.py</code> found by comparing every pair of steps across the current <code class="inline">approved_paths</code> — this one held in all of them, automatically, with no rule hand-written first.</p>
+          <p class="note">One of 9 precedence rules <code class="inline">mine_rules.py</code> found by comparing every pair of tasks across the current <code class="inline">approved_paths</code>. This ordering held in every current route containing both tasks, with no rule hand-written first.</p>
+          <p class="note">This rule does not require <code class="inline">employer_match_401k</code> to be present whenever <code class="inline">roth_ira</code> appears. A stronger “B requires A” policy needs another validator rule type; <code class="inline">check_rules()</code> does not implement that semantics today.</p>
         </div>
 
         <div class="rule-card">
@@ -805,7 +913,7 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
         <p>A reviewer is <strong>not</strong> attesting to having read every one of the graph's thousands of possible journeys — nobody can, and a process that implies otherwise isn't oversight, it's a rubber stamp with extra steps.</p>
       </div>
 
-      <p>Every task node in the graph carries <code class="inline">rationale</code> and <code class="inline">source_doc</code>, enforced by layer 1 — treat that as the audit trail. Any flagged step should trace back to why it exists and which policy document put it there.</p>
+      <p>Every task node carries non-empty <code class="inline">rationale</code> and <code class="inline">source_doc</code> fields, enforced by layer 1. Treat them as audit pointers: the validator confirms that the fields exist, but it does not verify that the referenced document exists or supports the rationale.</p>
     </section>
 
     <footer class="doc-footer">
@@ -813,3 +921,5 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
     </footer>
   </main>
 </div>
+</body>
+</html>
