@@ -785,12 +785,13 @@ uv run python validate.py snapshots/sample/graph.graphml expectations.yaml</code
       <pre><code>cd src
 NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=... uv run python snapshot.py
 uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations.yaml</code></pre>
-      <p><code class="inline">validate.py</code> writes <code class="inline">paths.json</code> and <code class="inline">validation.json</code> into the snapshot directory and exits 1 on failure, so it is suitable as a CI gate. The workflow in this repository validates the generated sample graph; gating a live Neo4j graph requires the same command to run against a real snapshot in the firm's deployment process.</p>
+      <p>Starting from a graph with no expectations file at all, <code class="inline">bootstrap.py &lt;graph.graphml&gt;</code> writes a draft: entries and terminals derived from the topology, every enumerated path as <code class="inline">approved_paths</code>, and mined candidate rules. The draft describes what the graph currently does—bugs included—so the one-time human review of it is the audit of the existing graph; scenarios must still be hand-written.</p>
+      <p><code class="inline">validate.py</code> writes <code class="inline">paths.json</code> and <code class="inline">validation.json</code> into the snapshot directory and exits 1 on failure, so it is suitable as a mechanical gate. Gating a live Neo4j graph means running the same command against a real snapshot wherever graph changes happen — a deployment step, or a scheduled snapshot-and-validate job that catches out-of-band edits as drift.</p>
     </section>
 
     <section id="expectations">
       <h2>expectations.yaml</h2>
-      <p>The file every validation run checks the graph against. Kept in version control next to the code, so a graph change that breaks an expected recommendation fails the build instead of reaching a client.</p>
+      <p>The file every validation run checks the graph against. Kept under change control—git, versioned object storage, or the firm's change-management system—so a graph change that breaks an expected recommendation fails validation instead of reaching a client.</p>
       <dl class="field-list">
         <dt>expected_entries / expected_terminals</dt>
         <dd>The exact allowed entry points, and the allowed set of dead ends. A new one showing up means a route changed without anyone intending it to.</dd>
@@ -896,7 +897,7 @@ uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations
           <span class="tier-num">2</span>
           <div>
             <h3>The rules are machine-checkable on every graph change.</h3>
-            <p>Once a rule is written down, <code class="inline">check_rules</code> can apply it consistently to each successfully enumerated graph version. The current CI workflow proves this process on the sample graph; the same validation must be wired into the live graph's change process before claiming it as a production gate.</p>
+            <p>Once a rule is written down, <code class="inline">check_rules</code> can apply it consistently to each successfully enumerated graph version. The sample graph proves this process end to end; the same validation must be wired into the live graph's change process before claiming it as a production gate.</p>
           </div>
         </li>
         <li>

@@ -23,7 +23,8 @@ Usage:
     python validate.py snapshots/20260806T142301Z/graph.graphml expectations.yaml
 
 Writes paths.json and validation.json into the snapshot directory.
-Exit code 0 = all checks passed, 1 = something failed. Safe to run in CI.
+Exit code 0 = all checks passed, 1 = something failed. Safe to run as an
+automated gate in whatever process governs graph changes.
 """
 
 import json
