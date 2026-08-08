@@ -9,7 +9,6 @@ the graph on that check passing before it ships.
 | Script | Reads | Produces | Checks |
 |---|---|---|---|
 | `snapshot.py` | live Neo4j (Bolt) | `graph.graphml`, `manifest.json` (when, source, HEAD commit, sha256) | nothing — export only |
-| `make_sample_graph.py` | nothing | `snapshots/sample/graph.graphml` | nothing — lets you run the pipeline with no Neo4j access |
 | `validate.py` | a `graph.graphml` + `expectations.yaml` | `paths.json` (every structural route found), `validation.json` (pass/fail report) | four layers: structural, path enumeration, rule invariants, named scenarios. Exit 1 on any failure |
 | `bootstrap.py` | a `graph.graphml` | a draft `expectations.yaml` | derives entries/terminals from topology, enumerates `approved_paths`, mines candidate `rules`. Aborts on structural problems (e.g. a cycle); refuses to overwrite an existing file |
 | `verify_baseline.py` | a draft `expectations.yaml` + live Neo4j (Bolt) | pass/fail to stdout | independently confirms the draft's entries/terminals match live degree structure, every approved-path step has a real edge, and no live task is missing — never reads the graphml |
@@ -39,15 +38,9 @@ uv sync
 
 ## Usage
 
-Without Neo4j, using a generated sample graph:
-
-```
-cd src
-uv run python make_sample_graph.py
-uv run python validate.py snapshots/sample/graph.graphml expectations.yaml
-```
-
-Against a real Neo4j instance:
+Every script takes a `graph.graphml` path as input. That file has to come
+from `snapshot.py` against a real Neo4j instance, or be a graphml you place
+there yourself — nothing in this pipeline fabricates a graph.
 
 ```
 cd src

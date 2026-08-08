@@ -58,7 +58,7 @@ Thumbs.db
 
 # profiling
 
-# generated graph snapshots (see snapshot.py / make_sample_graph.py)
+# generated graph snapshots (see snapshot.py)
 snapshots/
 
 # local Claude Code settings

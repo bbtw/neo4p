@@ -38,9 +38,9 @@ def mutated(sample_graph, tmp_path) -> Path:
     return out
 
 
-def test_unchanged_graph_exits_zero(baseline):
+def test_unchanged_graph_exits_zero(baseline, sample_graph):
     result = run(
-        "diff_baseline.py", "snapshots/sample/graph.graphml", str(baseline)
+        "diff_baseline.py", str(sample_graph), str(baseline)
     )
     assert result.returncode == 0
     assert "No structural changes from baseline" in result.stdout
