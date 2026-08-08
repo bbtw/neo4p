@@ -18,19 +18,18 @@ def run(script: str, *args: str) -> subprocess.CompletedProcess:
 
 
 @pytest.fixture(scope="module")
-def baseline(tmp_path_factory) -> Path:
-    assert run("make_sample_graph.py").returncode == 0
+def baseline(sample_graph, tmp_path_factory) -> Path:
     out = tmp_path_factory.mktemp("diff") / "baseline.yaml"
     assert run(
-        "bootstrap.py", "snapshots/sample/graph.graphml", str(out)
+        "bootstrap.py", str(sample_graph), str(out)
     ).returncode == 0
     return out
 
 
 @pytest.fixture()
-def mutated(tmp_path) -> Path:
+def mutated(sample_graph, tmp_path) -> Path:
     """Sample graph with one route added and the estate_review branch retired."""
-    graph = nx.read_graphml(SRC / "snapshots" / "sample" / "graph.graphml")
+    graph = nx.read_graphml(sample_graph)
     graph.add_edge("emergency_fund", "taxable_brokerage", rel="HAS_CHILD")
     graph.remove_node("roth_ira__estate")
     graph.remove_node("estate_review")
@@ -72,9 +71,9 @@ def test_update_carries_rules_and_scenarios(baseline, mutated):
     assert check.returncode == 0, check.stdout
 
 
-def test_baseline_rule_violation_is_reported(baseline, tmp_path):
+def test_baseline_rule_violation_is_reported(baseline, sample_graph, tmp_path):
     """A change that contradicts a mined baseline rule shows up as a violation."""
-    graph = nx.read_graphml(SRC / "snapshots" / "sample" / "graph.graphml")
+    graph = nx.read_graphml(sample_graph)
     # roth_ira always precedes taxable_brokerage in the baseline; invert the
     # ordering (drop roth's invest branch, then route taxable into roth)
     graph.remove_node("roth_ira__invest")

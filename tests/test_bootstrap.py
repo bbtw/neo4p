@@ -22,12 +22,6 @@ def run(script: str, *args: str) -> subprocess.CompletedProcess:
 
 
 @pytest.fixture(scope="module")
-def sample_graph(tmp_path_factory) -> Path:
-    assert run("make_sample_graph.py").returncode == 0
-    return SRC / "snapshots" / "sample" / "graph.graphml"
-
-
-@pytest.fixture(scope="module")
 def draft(sample_graph, tmp_path_factory) -> Path:
     out = tmp_path_factory.mktemp("bootstrap") / "draft.yaml"
     result = run("bootstrap.py", str(sample_graph), str(out))
