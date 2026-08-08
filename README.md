@@ -4,43 +4,81 @@ Validation pipeline for a Neo4j graph: snapshot it out of Neo4j, check it
 against a committed baseline (`expectations.yaml`), and gate any change to
 the graph on that check passing before it ships.
 
-## Scripts — what each produces and checks
-
-| Script | Reads | Produces | Checks |
-|---|---|---|---|
-| `snapshot.py` | live Neo4j (Bolt) | `graph.graphml`, `manifest.json` (when, source, HEAD commit, sha256) | nothing — export only |
-| `validate.py` | a `graph.graphml` + `expectations.yaml` | `paths.json` (every structural route found), `validation.json` (pass/fail report) | four layers: structural, path enumeration, rule invariants, named scenarios. Exit 1 on any failure |
-| `bootstrap.py` | a `graph.graphml` | a draft `expectations.yaml` | derives entries/terminals from topology, enumerates `approved_paths`, mines candidate `rules`. Aborts on structural problems (e.g. a cycle); refuses to overwrite an existing file |
-| `verify_baseline.py` | a draft `expectations.yaml` + live Neo4j (Bolt) | pass/fail to stdout | independently confirms the draft's entries/terminals match live degree structure, every approved-path step has a real edge, and no live task is missing — never reads the graphml |
-| `diff_baseline.py` | a new `graph.graphml` + the committed `expectations.yaml` | `change_report.md`, and with `--update` a new `expectations.yaml` | which client journeys were added/removed, entry/terminal changes, whether added journeys violate a baseline rule or reroute a scenario. Exit 0 = no delta, exit 1 = delta to review |
-| `mine_rules.py` | a `graph.graphml` | candidate `rules` | used internally by `bootstrap.py`; can also be run standalone to re-mine rules for review |
-
-## Order of operations
-
-**First time (no `expectations.yaml` yet):** `snapshot.py` → `bootstrap.py`
-→ `verify_baseline.py` → freeze the result as the committed baseline. See
-"Bootstrapping" below.
-
-**Every deploy / scheduled check (baseline already exists):** `snapshot.py`
-→ `validate.py` against the committed `expectations.yaml`. Exit 1 blocks
-the deploy.
-
-**Reviewing a graph change (baseline already exists):** `snapshot.py` on
-the new graph → `diff_baseline.py` against the committed `expectations.yaml`
-→ review `change_report.md` → if approved, promote the `--update`d
-`expectations.yaml` to be the new baseline. See "Signing off" below.
-
 ## Setup
 
 ```
 uv sync
 ```
 
-## Usage
+## Scripts — what each produces and checks
+
+| Script | Reads | Produces | Checks |
+|---|---|---|---|
+| `snapshot.py` | live Neo4j (Bolt) | `graph.graphml`, `manifest.json` (when, source, HEAD commit, sha256) | nothing — export only |
+| `bootstrap.py` | a `graph.graphml` | a draft `expectations.yaml` | derives entries/terminals from topology, enumerates `approved_paths`, mines candidate `rules`. Aborts on structural problems (e.g. a cycle); refuses to overwrite an existing file |
+| `verify_baseline.py` | a draft `expectations.yaml` + live Neo4j (Bolt) | pass/fail to stdout | independently confirms the draft's entries/terminals match live degree structure, every approved-path step has a real edge, and no live task is missing — never reads the graphml |
+| `validate.py` | a `graph.graphml` + `expectations.yaml` | `paths.json` (every structural route found), `validation.json` (pass/fail report) | four layers: structural, path enumeration, rule invariants, named scenarios. Exit 1 on any failure |
+| `diff_baseline.py` | a new `graph.graphml` + the committed `expectations.yaml` | `change_report.md`, and with `--update` a new `expectations.yaml` | which client journeys were added/removed, entry/terminal changes, whether added journeys violate a baseline rule or reroute a scenario. Exit 0 = no delta, exit 1 = delta to review |
+| `mine_rules.py` | a `graph.graphml` | candidate `rules` | used internally by `bootstrap.py`; can also be run standalone to re-mine rules for review |
 
 Every script takes a `graph.graphml` path as input. That file has to come
 from `snapshot.py` against a real Neo4j instance, or be a graphml you place
 there yourself — nothing in this pipeline fabricates a graph.
+
+## The full lifecycle
+
+### 0. Where you start: a live graph, no baseline
+
+You have a graph in Neo4j and no `expectations.yaml`. There's nothing to
+validate against yet, so the only place to start is trusting today's graph:
+whatever it currently does is treated as correct, and gets captured as the
+baseline. "Bootstrapping" here means recording what the graph does today,
+not judging whether it should.
+
+### 1. Capture the baseline (one-time)
+
+```
+cd src
+
+# a. export the live graph — writes manifest.json (counts + sha256)
+NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=... uv run python snapshot.py
+
+# b. derive a draft baseline from that export
+uv run python bootstrap.py snapshots/<timestamp>/graph.graphml
+# writes snapshots/<timestamp>/expectations.yaml
+
+# c. independently verify the draft against the live graph, bypassing the export
+NEO4J_URI=... NEO4J_USER=... NEO4J_PASSWORD=... uv run python verify_baseline.py snapshots/<timestamp>/expectations.yaml
+```
+
+Use `snapshot.py` for the export, not APOC or Neo4j Browser — the pipeline
+expects its attribute conventions (`labels`, `rel`), and a foreign export
+produces a well-formed draft of the wrong graph.
+
+Steps (a)–(c) go through three different code paths on purpose, so they
+cross-check each other. If `verify_baseline.py` fails, stop — don't freeze
+a draft that doesn't match the live graph, investigate the mismatch first.
+
+### 2. Freeze it
+
+Commit the verified `expectations.yaml` wherever you keep things under
+change control — git, versioned object storage, your firm's
+change-management system. This file is now **the baseline**: everything
+from here on is checked against it. Keep `manifest.json` alongside it; its
+sha256 pins exactly which graph export the baseline mirrors.
+
+Optional hardening, not required to have a working baseline: read through
+`approved_paths` and the mined `rules` once as a human audit of the existing
+graph, and add rules the graph should follow but doesn't currently violate,
+plus hand-written `scenarios` — concrete client profiles pinned to a
+required step sequence. `bootstrap.py` can't derive scenarios from topology
+alone.
+
+### 3. Ongoing: gate every deploy against the baseline
+
+From here on, run this wherever a graph change could actually reach a
+client — a deployment step, or a scheduled snapshot-and-validate job that
+also catches out-of-band edits made directly in Neo4j:
 
 ```
 cd src
@@ -49,91 +87,51 @@ uv run python validate.py snapshots/<timestamp>/graph.graphml expectations.yaml
 ```
 
 `paths.json` and `validation.json` are written into the snapshot directory.
+Exit 1 blocks the deploy.
 
-## Bootstrapping: a complete baseline of the live graph
+### 4. When you intend to change the graph
 
-Cold start — you have a live graph but no expectations.yaml. The goal is a
-complete, verified record of what the graph does today. Four steps, the first
-three through different code paths so they cross-check each other:
-
-```
-cd src
-# 1. export the live graph (writes manifest.json with counts + sha256)
-NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=... uv run python snapshot.py
-
-# 2. derive the baseline from the snapshot
-uv run python bootstrap.py snapshots/<timestamp>/graph.graphml
-
-# 3. cross-check the baseline against the live graph, bypassing the export
-NEO4J_URI=... NEO4J_USER=... NEO4J_PASSWORD=... uv run python verify_baseline.py snapshots/<timestamp>/expectations.yaml
-
-# 4. freeze it: designate this file as the current baseline in whatever
-#    controlled store you use (the manifest's sha256 pins the graph it mirrors)
-```
-
-Export with `snapshot.py`, not APOC or Neo4j Browser — the pipeline expects
-its attribute conventions (`labels`, `rel`), and a foreign export produces a
-well-formed draft of the wrong graph. `bootstrap.py` reuses `validate.py`'s
-and `mine_rules.py`'s own functions, so the draft is by construction what
-validation would compute.
-
-After step 4 the baseline is complete for its purpose: `approved_paths` is an
-exhaustive record of every route in today's graph, so any future change —
-edge added, node removed, route created — fails validation as a path diff.
-The baseline is descriptive: it records whatever the graph currently does,
-bugs included, and validating the same graph against it passes by
-construction. From here, every future graph version is reviewed as a delta
-against this file (see below).
-
-Optional hardening, separate from capturing the baseline: read the paths and
-mined rules once as an audit of the existing graph, and add what the miner
-cannot derive from today's topology — rules the graph currently violates,
-rules about steps that don't exist yet, and `scenarios` pinning which branch
-a given client profile must take.
-
-## Signing off on graph changes
-
-Once the baseline is committed, every new graph version is reviewed as a
-delta against it — never by re-reading the full path list:
+Don't hand-edit `expectations.yaml` to match a new graph — review the
+change first:
 
 ```
 cd src
 # export the new graph version, then:
-uv run python diff_baseline.py snapshots/<new>/graph.graphml <committed expectations.yaml> --update
+uv run python diff_baseline.py snapshots/<new>/graph.graphml <path to committed expectations.yaml> --update
 ```
 
-With `--update` it also writes a new `expectations.yaml` — `approved_paths`,
-entries, and terminals updated to the new graph, rules and scenarios carried
-over untouched. The sign-off loop is:
+This writes `change_report.md`: which client journeys the change added,
+which previously approved journeys are no longer possible, any
+entry/terminal changes, and whether the added journeys violate a baseline
+rule or reroute a scenario. `--update` also writes a new draft
+`expectations.yaml` — `approved_paths`, entries, and terminals refreshed to
+the new graph, `rules` and `scenarios` carried over untouched.
 
-1. review `change_report.md` — it lists exactly what changed and nothing else;
-2. if the changes are intended, promote the updated `expectations.yaml` to be
-   the new current baseline, and retain the report with the approval in your
-   change-management process — report + approval is the sign-off record;
-3. if not, fix the graph and re-run.
+Review loop:
 
-None of this depends on git or GitHub: baselines are plain files pinned by
-the manifest's sha256, and the report is the change record. `validate.py`
-stays the mechanical gate — run it against the current baseline wherever
-graph changes actually happen (a deployment step, or a scheduled
-snapshot-and-validate job that catches out-of-band edits to the live graph
-as drift). It exits 1 on any deviation, forcing every change through this
-review loop.
+1. Read `change_report.md` — it lists exactly what changed and nothing else.
+2. Intended → promote the updated `expectations.yaml` to be the new
+   baseline (replacing the file from step 2), and retain the report with
+   your approval as the sign-off record.
+3. Not intended → fix the graph, re-run.
+
+Then go back to step 3: the new baseline is what every subsequent
+`validate.py` run checks against.
+
+None of this depends on git or GitHub — baselines are plain files pinned by
+`manifest.json`'s sha256, and `change_report.md` is the change record.
 
 ## expectations.yaml
 
-The file every validation run checks the graph against. Kept under change
-control — git, versioned object storage, or your firm's change-management
-system — so a graph change that breaks an expected recommendation fails
-validation instead of reaching a client.
+The file every validation run checks the graph against.
 
 - `expected_entries` / `expected_terminals` — the exact entry points and the
   allowed set of dead ends.
 - `approved_paths` — every simple structural route the graph is allowed to
   contain.
 - `rules` — precedence and mutual-exclusion invariants applied to enumerated
-  routes on each run, including new routes introduced by future graph changes.
-  Bootstrap candidates from a verified graph with `mine_rules.py`.
+  routes on each run, including new routes introduced by future graph
+  changes. Bootstrap candidates from a verified graph with `mine_rules.py`.
 - `scenarios` — concrete client profiles with the step sequence they must
   produce. Always hand-written — `bootstrap.py` cannot derive these from
   topology.
