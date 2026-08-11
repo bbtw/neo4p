@@ -1,0 +1,50 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+<!--
+Same graph as sample_graph.graphml, re-shaped as an apoc.export.graphml.query
+(useTypes: true) scoped to just this flow would actually write it:
+colon-joined labels, relationship type under the `label` key instead of
+`rel`, exporter-assigned node ids (n0, n1, ...) with each node's real `id`
+property carried through as an ordinary attribute. Scoped means no unrelated
+nodes/relationships — see sample_graph_apoc_wholedb.graphml for what an
+apoc.export.graphml.all (whole-database, unscoped) export looks like and how
+the pipeline handles the difference.
+-->
+<key id="d0" for="node" attr.name="labels" attr.type="string"/>
+<key id="d1" for="node" attr.name="id" attr.type="string"/>
+<key id="d2" for="node" attr.name="rationale" attr.type="string"/>
+<key id="d3" for="node" attr.name="source_doc" attr.type="string"/>
+<key id="d4" for="node" attr.name="description" attr.type="string"/>
+<key id="d6" for="edge" attr.name="label" attr.type="string"/>
+<key id="d7" for="edge" attr.name="condition_key" attr.type="string"/>
+<key id="d8" for="edge" attr.name="condition_value" attr.type="string"/>
+<graph edgedefault="directed">
+<node id="n0" labels=":Task"><data key="d0">:Task</data><data key="d1">emergency_fund</data><data key="d2">Liquidity before anything illiquid or locked up</data><data key="d3">policy_v4.2</data></node>
+<node id="n1" labels=":Task"><data key="d0">:Task</data><data key="d1">pay_down_high_interest</data><data key="d2">Guaranteed return equal to the interest rate</data><data key="d3">policy_v4.2</data></node>
+<node id="n2" labels=":Task"><data key="d0">:Task</data><data key="d1">employer_match_401k</data><data key="d2">Match is an immediate 100% return</data><data key="d3">policy_v4.2</data></node>
+<node id="n3" labels=":Task"><data key="d0">:Task</data><data key="d1">roth_ira</data><data key="d2">Tax-free growth once the match is captured</data><data key="d3">policy_v4.2</data></node>
+<node id="n4" labels=":Task"><data key="d0">:Task</data><data key="d1">taxable_brokerage</data><data key="d2">Overflow once tax-advantaged space is used</data><data key="d3">policy_v4.2</data></node>
+<node id="n5" labels=":Task:Reviewed"><data key="d0">:Task:Reviewed</data><data key="d1">estate_review</data><data key="d2">Beneficiary and titling review</data><data key="d3">policy_v4.2</data></node>
+<node id="n6" labels=":CriteriaNode"><data key="d0">:CriteriaNode</data><data key="d1">emergency_fund__funded_with_debt</data><data key="d4">Does the client have an emergency fund on hand, but is still carrying high-interest debt?</data></node>
+<node id="n7" labels=":CriteriaNode"><data key="d0">:CriteriaNode</data><data key="d1">emergency_fund__funded_clear</data><data key="d4">Does the client have an emergency fund on hand and no high-interest debt?</data></node>
+<node id="n8" labels=":CriteriaNode"><data key="d0">:CriteriaNode</data><data key="d1">pay_down_high_interest__yes</data><data key="d4">Has the client's high-interest debt been paid off?</data></node>
+<node id="n9" labels=":CriteriaNode"><data key="d0">:CriteriaNode</data><data key="d1">employer_match_401k__roth</data><data key="d4">Is a Roth IRA the client's next investment vehicle?</data></node>
+<node id="n10" labels=":CriteriaNode"><data key="d0">:CriteriaNode</data><data key="d1">employer_match_401k__taxable</data><data key="d4">Is a taxable brokerage account the client's next investment vehicle?</data></node>
+<node id="n11" labels=":CriteriaNode"><data key="d0">:CriteriaNode</data><data key="d1">roth_ira__invest</data><data key="d4">After the Roth IRA, does the client want to keep investing?</data></node>
+<node id="n12" labels=":CriteriaNode"><data key="d0">:CriteriaNode</data><data key="d1">roth_ira__estate</data><data key="d4">After the Roth IRA, is the client ready for an estate review?</data></node>
+<edge id="e0" source="n0" target="n6" label="CRITERIA_BRANCH"><data key="d6">CRITERIA_BRANCH</data><data key="d7">fund_status</data><data key="d8">funded_with_debt</data></edge>
+<edge id="e1" source="n0" target="n7" label="CRITERIA_BRANCH"><data key="d6">CRITERIA_BRANCH</data><data key="d7">fund_status</data><data key="d8">funded_clear</data></edge>
+<edge id="e2" source="n1" target="n8" label="CRITERIA_BRANCH"><data key="d6">CRITERIA_BRANCH</data><data key="d7">debt_cleared</data><data key="d8">yes</data></edge>
+<edge id="e3" source="n2" target="n9" label="CRITERIA_BRANCH"><data key="d6">CRITERIA_BRANCH</data><data key="d7">next_vehicle</data><data key="d8">roth</data></edge>
+<edge id="e4" source="n2" target="n10" label="CRITERIA_BRANCH"><data key="d6">CRITERIA_BRANCH</data><data key="d7">next_vehicle</data><data key="d8">taxable</data></edge>
+<edge id="e5" source="n3" target="n11" label="CRITERIA_BRANCH"><data key="d6">CRITERIA_BRANCH</data><data key="d7">after_roth</data><data key="d8">invest</data></edge>
+<edge id="e6" source="n3" target="n12" label="CRITERIA_BRANCH"><data key="d6">CRITERIA_BRANCH</data><data key="d7">after_roth</data><data key="d8">estate</data></edge>
+<edge id="e7" source="n6" target="n1" label="HAS_CHILD"><data key="d6">HAS_CHILD</data></edge>
+<edge id="e8" source="n7" target="n2" label="HAS_CHILD"><data key="d6">HAS_CHILD</data></edge>
+<edge id="e9" source="n8" target="n2" label="HAS_CHILD"><data key="d6">HAS_CHILD</data></edge>
+<edge id="e10" source="n9" target="n3" label="HAS_CHILD"><data key="d6">HAS_CHILD</data></edge>
+<edge id="e11" source="n10" target="n4" label="HAS_CHILD"><data key="d6">HAS_CHILD</data></edge>
+<edge id="e12" source="n11" target="n4" label="HAS_CHILD"><data key="d6">HAS_CHILD</data></edge>
+<edge id="e13" source="n12" target="n5" label="HAS_CHILD"><data key="d6">HAS_CHILD</data></edge>
+</graph>
+</graphml>

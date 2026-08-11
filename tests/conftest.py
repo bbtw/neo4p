@@ -1,10 +1,10 @@
 """Shared fixtures.
 
-Tests run against a real graphml, never a graph fabricated in Python: either
-one exported live from Neo4j via snapshot.py, or the static file checked in
-at tests/fixtures/sample_graph.graphml. src/expectations.yaml is hand-written
-to match that fixture exactly, so if you regenerate the fixture, update
-src/expectations.yaml to match.
+Tests run against a real graphml, never a graph fabricated in Python: the
+static file checked in at tests/fixtures/sample_graph.graphml (plus the
+apoc.export.graphml.*-shaped fixtures used by test_apoc_compat.py).
+src/expectations.yaml is hand-written to match sample_graph.graphml exactly,
+so if you regenerate that fixture, update src/expectations.yaml to match.
 """
 
 import shutil

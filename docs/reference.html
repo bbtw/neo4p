@@ -568,7 +568,7 @@
       <h1>The financial-planning knowledge graph: value, use, and validation</h1>
       <p class="subtitle">Why the firm encodes task ordering as a governed knowledge graph, how it can support a planning digital assistant and semantic layer, and how each graph version is checked before it can influence a recommendation.</p>
       <dl class="meta">
-        <div><dt>Pipeline</dt><dd>snapshot.py → validate.py</dd></div>
+        <div><dt>Pipeline</dt><dd>apoc.export.graphml.* → validate.py</dd></div>
         <div><dt>Path cap</dt><dd>MAX_PATHS = 5,000</dd></div>
         <div><dt>Audience</dt><dd>engineering + compliance review</dd></div>
       </dl>
@@ -758,12 +758,9 @@ then
       <div class="flow">
         <div class="flow-box"><span class="name">Neo4j</span><span class="note">planning KG only</span></div>
         <div class="flow-arrow">→</div>
-        <div class="flow-box"><span class="name">snapshot.py</span><span class="note">freeze &amp; hash</span></div>
+        <div class="flow-box"><span class="name">apoc.export.graphml.*</span><span class="note">run in Neo4j, file lands on disk</span></div>
         <div class="flow-arrow">→</div>
-        <div class="flow-stack">
-          <div class="flow-box"><span class="name">graph.graphml</span></div>
-          <div class="flow-box"><span class="name">manifest.json</span><span class="note">when, source, HEAD commit, sha256</span></div>
-        </div>
+        <div class="flow-box"><span class="name">graph.graphml</span></div>
         <div class="flow-arrow">→</div>
         <div class="flow-box"><span class="name">validate.py</span><span class="note">checked against expectations.yaml</span></div>
         <div class="flow-arrow">→</div>
@@ -776,12 +773,11 @@ then
 
     <section id="usage">
       <h2>Setup &amp; usage</h2>
-      <p><code class="inline">uv sync</code>. Every script takes a <code class="inline">graph.graphml</code> path as input — that file has to come from <code class="inline">snapshot.py</code> against a real Neo4j instance, or be a graphml you place there yourself; nothing in this pipeline fabricates a graph.</p>
+      <p><code class="inline">uv sync</code>. Every script takes a <code class="inline">graph.graphml</code> path as input — a plain <code class="inline">apoc.export.graphml.*</code> export (scoped query or whole-database, <code class="inline">useTypes</code> on or off) or any other graphml you place there yourself. Nothing in this pipeline holds a live Neo4j connection or fabricates a graph; <code class="inline">normalize_graph()</code> reconciles export-format differences (which attribute holds the relationship type, exporter-assigned vs. business node ids) before the checks run.</p>
       <pre><code>cd src
-NEO4J_URI=bolt://localhost:7687 NEO4J_USER=neo4j NEO4J_PASSWORD=... uv run python snapshot.py
-uv run python validate.py snapshots/&lt;timestamp&gt;/graph.graphml expectations.yaml</code></pre>
-      <p>Starting from a graph with no expectations file at all, <code class="inline">bootstrap.py &lt;graph.graphml&gt;</code> writes a draft: entries and terminals derived from the topology, every enumerated path as <code class="inline">approved_paths</code>, and mined candidate rules. The draft describes what the graph currently does—bugs included—so the one-time human review of it is the audit of the existing graph; scenarios must still be hand-written.</p>
-      <p><code class="inline">validate.py</code> writes <code class="inline">paths.json</code> and <code class="inline">validation.json</code> into the snapshot directory and exits 1 on failure, so it is suitable as a mechanical gate. Gating a live Neo4j graph means running the same command against a real snapshot wherever graph changes happen — a deployment step, or a scheduled snapshot-and-validate job that catches out-of-band edits as drift.</p>
+uv run python validate.py path/to/graph.graphml expectations.yaml</code></pre>
+      <p>Starting from a graph with no expectations file at all, <code class="inline">bootstrap.py &lt;graph.graphml&gt;</code> writes a draft: entries and terminals derived from the topology, every enumerated path as <code class="inline">approved_paths</code>, required step attributes, and mined candidate rules. The draft describes what the graph currently does—bugs included—so the one-time human review of it is the audit of the existing graph; scenarios must still be hand-written.</p>
+      <p><code class="inline">validate.py</code> writes <code class="inline">paths.json</code> and <code class="inline">validation.json</code> next to the graphml and exits 1 on failure, so it is suitable as a mechanical gate. Gating a live graph means re-running <code class="inline">apoc.export.graphml.*</code> and this same command wherever graph changes happen — a deployment step, or a scheduled export-and-validate job that catches out-of-band edits as drift.</p>
     </section>
 
     <section id="expectations">

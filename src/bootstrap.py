@@ -3,15 +3,19 @@ Bootstrap a draft expectations.yaml from a graph that has none.
 
 For the cold-start case: you have a graph.graphml but no expectations file to
 validate it against. This script derives everything derivable from the graph
-itself — entry points, terminals, the full path list, and candidate rules
-mined from those paths — and writes a draft expectations.yaml.
+itself — entry points, terminals, the full path list, candidate rules mined
+from those paths, and the attributes every current step carries — and writes
+a draft expectations.yaml.
 
 The draft is DESCRIPTIVE, not normative: it approves whatever the graph
 currently does, bugs included. It catches nothing on day one. The one-time
 human review of the draft is the audit of the existing graph; committing the
 reviewed file is what turns it into a baseline that catches every change
 after it. Scenarios cannot be derived from topology and are left as an empty
-stub to hand-write.
+stub to hand-write. required_step_attrs is derived as a starting point (every
+attribute every current step happens to share) — trim it to what should
+actually be mandatory; a graph with no consistently-shared attribute yields
+an empty list, which enforces nothing until you fill it in by hand.
 
 Usage:
     python bootstrap.py snapshots/sample/graph.graphml [out.yaml]
@@ -19,6 +23,9 @@ Usage:
 Writes expectations.yaml next to the graphml unless an output path is given.
 Refuses to overwrite an existing file. Exit code 0 = draft written,
 1 = graph problems prevent bootstrapping (e.g. a cycle).
+
+Accepts a plain apoc.export.graphml.* export directly — no live Neo4j
+connection needed (see validate.normalize_graph for the details).
 """
 
 import sys
@@ -28,11 +35,17 @@ import networkx as nx
 import yaml
 
 from mine_rules import mine_mutual_exclusion, mine_precedence
+from schema import infer_schema
 from validate import (
     check_structure,
     collapse_criteria,
     enumerate_paths,
+    normalize_graph,
 )
+
+# Bookkeeping attributes that describe the graph export itself, not the
+# domain — never propose these as "required" step documentation.
+BOOKKEEPING_NODE_ATTRS = {"labels", "id"}
 
 HEADER = """\
 # GENERATED BASELINE — draft expectations.yaml bootstrapped from:
@@ -60,17 +73,25 @@ def main() -> None:
     if outpath.exists():
         sys.exit(f"refusing to overwrite existing {outpath} — move it first")
 
-    graph = nx.read_graphml(graphml_path)
+    graph = normalize_graph(nx.read_graphml(graphml_path))
 
     # Derive what validate.py would otherwise be told.
     entries = sorted(n for n, d in graph.in_degree() if d == 0)
     terminals = sorted(n for n, d in graph.out_degree() if d == 0)
 
+    schema = infer_schema(graph)
+    step_attrs = [
+        set(data) - BOOKKEEPING_NODE_ATTRS
+        for node, data in graph.nodes(data=True)
+        if not schema.is_branch(node)
+    ]
+    required_step_attrs = sorted(set.intersection(*step_attrs)) if step_attrs else []
+
     # Structural problems are real findings even with no expectations yet.
     # Entry/terminal checks pass trivially (we just derived them); the rest —
-    # cycles, orphans, missing rationale/source_doc, bare branches — are not
+    # cycles, orphans, missing required attrs, bare branches — are not
     # things a baseline should silently bless.
-    problems = check_structure(graph, entries, terminals)
+    problems = check_structure(graph, entries, terminals, tuple(required_step_attrs))
     for line in problems:
         print(f"  ! {line}")
 
@@ -92,6 +113,7 @@ def main() -> None:
     draft = {
         "expected_entries": entries,
         "expected_terminals": terminals,
+        "required_step_attrs": required_step_attrs,
         "approved_paths": paths,
         "rules": rules,
         "scenarios": [],
@@ -103,8 +125,9 @@ def main() -> None:
 
     print(
         f"wrote draft baseline to {outpath}: {len(entries)} entries, "
-        f"{len(terminals)} terminals, {len(paths)} paths, "
-        f"{len(rules)} candidate rules, 0 scenarios (hand-write these)"
+        f"{len(terminals)} terminals, {len(required_step_attrs)} required step "
+        f"attrs, {len(paths)} paths, {len(rules)} candidate rules, "
+        "0 scenarios (hand-write these)"
     )
     if problems:
         print(f"{len(problems)} structural problems above need fixing before review")

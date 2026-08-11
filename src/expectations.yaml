@@ -9,6 +9,12 @@ expected_terminals:
   - taxable_brokerage
   - estate_review
 
+# Attributes every step must carry. Derived by bootstrap.py as "every
+# attribute every current step happens to share", then hand-reviewed here.
+required_step_attrs:
+  - rationale
+  - source_doc
+
 # Every client journey the graph is allowed to produce. Regenerate from
 # paths.json when a change is intended, and review the diff before committing:
 # that diff is the record of which journeys a change added or removed.

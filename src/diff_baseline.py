@@ -14,11 +14,15 @@ Usage:
 
 Writes change_report.md next to the new graphml. With --update, also writes
 expectations.yaml next to it: approved_paths, entries, and terminals updated
-to the new graph, rules and scenarios carried over from the baseline
-untouched. Committing that file (its git diff = this report) is the sign-off.
+to the new graph, required_step_attrs/rules/scenarios carried over from the
+baseline untouched. Committing that file (its git diff = this report) is the
+sign-off.
 
 Exit code 0 = no change from baseline, 1 = changes found (see report),
 2 = cannot diff (e.g. cycle or path explosion).
+
+Accepts a plain apoc.export.graphml.* export directly — no live Neo4j
+connection needed (see validate.normalize_graph for the details).
 """
 
 import sys
@@ -27,11 +31,13 @@ from pathlib import Path
 import networkx as nx
 import yaml
 
+from schema import infer_schema
 from validate import (
     check_rules,
     check_scenarios,
     collapse_criteria,
     enumerate_paths,
+    normalize_graph,
 )
 
 
@@ -67,7 +73,9 @@ def build_report(
     # Baseline rules and scenarios applied to the NEW graph: does the change
     # break an invariant or reroute a known profile?
     rule_failures = check_rules(new["paths"], baseline.get("rules", []))
-    scenario_failures = check_scenarios(new["collapsed"], baseline.get("scenarios", []))
+    scenario_failures = check_scenarios(
+        new["collapsed"], baseline.get("scenarios", []), new["schema"]
+    )
 
     changed = bool(added or removed or structure)
 
@@ -120,13 +128,14 @@ def main() -> None:
     graphml, baseline_path = Path(args[0]), Path(args[1])
 
     baseline = yaml.safe_load(baseline_path.read_text())
-    graph = nx.read_graphml(graphml)
+    graph = normalize_graph(nx.read_graphml(graphml))
 
     if not nx.is_directed_acyclic_graph(graph):
         sys.exit(f"cannot diff: new graph contains a cycle: {nx.find_cycle(graph)}")
 
     entries = sorted(n for n, d in graph.in_degree() if d == 0)
     terminals = sorted(n for n, d in graph.out_degree() if d == 0)
+    schema = infer_schema(graph)
     try:
         collapsed = collapse_criteria(graph)
         paths = enumerate_paths(collapsed, entries, terminals)
@@ -138,6 +147,7 @@ def main() -> None:
         "terminals": terminals,
         "paths": paths,
         "collapsed": collapsed,
+        "schema": schema,
     }
     report, changed = build_report(graphml, baseline_path, baseline, new)
 
@@ -150,6 +160,7 @@ def main() -> None:
         updated = {
             "expected_entries": entries,
             "expected_terminals": terminals,
+            "required_step_attrs": baseline.get("required_step_attrs", []),
             "approved_paths": paths,
             "rules": baseline.get("rules", []),
             "scenarios": baseline.get("scenarios", []),
