@@ -1,248 +1,198 @@
 # Known issues
 
-Findings from a repo review on 2026-08-11. Ordered by severity within each
-section. None of these are fixed yet — this is the punch list.
+Findings from a repo review on 2026-08-11, updated after the shape refactor
+the same day. The refactor replaced `schema.infer_schema()` — which guessed a
+graph's meaning from its topology on every validation run — with a declared
+`shape.yaml` per graph, and demoted inference to `propose_shape.py`, a draft
+generator that never runs during validation.
 
-## Critical
+## Fixed
 
-### 1. Working tree is not committed — repo is broken on a fresh clone
+### 2. Branch-type classification required no evidence of an actual fork
 
-`src/schema.py`, `tests/test_schema.py`, `tests/test_apoc_compat.py`, and the
-two APOC-shaped fixtures (`tests/fixtures/sample_graph_apoc*.graphml`) are
-untracked. Every module (`validate.py`, `bootstrap.py`, `diff_baseline.py`)
-does `from schema import ...`, so `git clone` + `uv sync` + run fails
-immediately with `ModuleNotFoundError`. There are also several modified/
-deleted tracked files (`src/snapshot.py`, `src/verify_baseline.py` deleted;
-`README.md`, `pyproject.toml`, `src/validate.py`, `src/bootstrap.py`,
-`src/diff_baseline.py`, `src/expectations.yaml`, `tests/conftest.py`,
-`tests/test_validate.py`, `docs/reference.html` modified) sitting
-uncommitted. `git status --short` in the repo root shows the full list.
+**Was:** `infer_schema()` marked a relationship type as `branching` the moment
+any single edge of that type carried a property beyond `rel`/`id`, without
+ever checking whether that type was used to fork. Two confirmed failure
+modes, both reproduced against the real code:
 
-**Fix:** commit (or explicitly stage/review) everything currently untracked
-and modified before treating `main` as usable.
+- A shared rel type picking up one incidental property cascaded — every node
+  reached only via that type became a "branch", and `collapse_criteria()`
+  raised `ValueError`. Confusing but loud.
+- A one-off rel type feeding a pass-through step (in-degree 1, out-degree 1)
+  produced **zero failures**. The node was silently deleted from the graph
+  before path enumeration *and* exempted from `required_step_attrs`, so a
+  real client-facing step could ship with no `rationale` and no `source_doc`,
+  undetected. Downstream it surfaced only as `"approved journey no longer
+  possible"` — indistinguishable from an intentional removal, which a
+  reviewer would sign off on.
 
-### 2. Branch-type classification requires no evidence of an actual fork (`src/schema.py`)
+**Fixed by** deleting inference from the validation path entirely. `shape.yaml`
+declares `step_labels` / `branch_labels`, so what a node *is* comes from its
+own label, and no edge property can change it. `check_shape()` runs as layer 0
+and rejects a graph that contradicts its shape file before any other layer
+reads it.
 
-`infer_schema()` marks a relationship type as `branching` the moment *any
-single edge* of that type carries a property beyond `rel`/`id` (lines
-~70–76). It never checks whether that rel type is actually used to fork —
-i.e. whether any node has ≥2 outgoing edges of that type. Contrast this with
-`condition_key_attr`/`condition_value_attr` a few lines down (~106–123),
-which correctly *does* require a real fork (`sibling_groups`: nodes with ≥2
-branch edges) before drawing any conclusion. The classification step is
-looser than the signal it's supposed to detect.
+Both repro cases are pinned as regression tests:
+`tests/test_shape.py::test_incidental_edge_property_no_longer_reclassifies_a_step`
+and `::test_undocumented_passthrough_step_is_caught_not_silently_deleted`.
 
-**Confirmed impact** (reproduced against the actual code, see below):
+**Also addressed the secondary hardening note:** `validate.py` prints the
+shape it used before printing any result, and reports every layer as
+`ok`/`FAIL` rather than printing only failures — so "checked and clean" is
+distinguishable from "never ran".
 
-- **If the mis-tagged rel type is reused across the graph** (e.g. a shared
-  `NEXT` relationship, and one edge of it picks up an incidental property
-  like a timestamp or weight): every node reached only via that type
-  cascades into "branch," `collapse_criteria()` can't find a single direct
-  child for most of them, and it raises `ValueError` loudly. Confusing, but
-  safe — impossible to miss.
+### 3. `diff_baseline.py` documented exit code 2 was unreachable
 
-- **If the mis-tagged rel type is used on exactly one edge, and that edge
-  feeds a pass-through step** (in-degree 1, out-degree 1): `check_structure()`
-  returns **zero failures**. `collapse_criteria()` silently deletes that node
-  from the graph — no error, no warning. Worse: the deleted node is also
-  **exempt from `required_step_attrs`** (branch nodes don't need
-  `rationale`/`source_doc`), so a real client-facing step can ship with no
-  documentation and no failure is raised, purely because of one incidental
-  edge property. Reproduction:
+Both sites used `sys.exit("message")`, which exits 1 — the same code as
+"changes found". Now `die()` prints to stderr and exits 2. Covered by
+`test_diff_baseline.py::test_cannot_diff_exits_2_not_1`.
 
-  ```python
-  # B has in-degree 1 (via a one-off "SPECIAL" rel carrying an unrelated
-  # property) and out-degree 1 (plain "NEXT"). B is missing its required
-  # rationale/source_doc.
-  g.add_edge("A", "B", rel="SPECIAL", note="internal tracking id")
-  g.add_edge("B", "C", rel="NEXT")
-  # B intentionally has no rationale/source_doc
+### 4. `diff_baseline.py --update` had no overwrite guard
 
-  check_structure(g, ["A"], ["C"], required_step_attrs=("rationale","source_doc"))
-  # -> [] (zero failures — B's missing docs are never caught)
+`--update` wrote `expectations.yaml` next to the new graphml unconditionally,
+silently clobbering the committed baseline it had just diffed against. It now
+writes `expectations.yaml.new` and prints the `mv` to promote it. Covered by
+`::test_update_never_overwrites_the_baseline_it_diffed_against`.
 
-  collapse_criteria(g)
-  # -> nodes: ['A', 'C']  (B is gone entirely)
-  ```
+### 5. `collapse_criteria()` silently dropped parallel branches to the same child
 
-  The only place this can ever surface downstream is `check_paths()`
-  comparing against `approved_paths` in `validate.py`, and even then the
-  message reads like a real, intentional structural change
-  (`"approved journey no longer possible: [A,B,C]"` /
-  `"unapproved client journey: [A,C]"`). Run through `diff_baseline.py` —
-  the actual human sign-off tool — a reviewer sees what looks like "step B
-  was removed" and can approve it without ever learning it's a
-  misclassification artifact rather than a real change to the live graph.
-
-**Proposed fix**, tested against both repro cases and against
-`tests/fixtures/sample_graph.graphml`'s real branch type (all three come out
-correct): in `infer_schema()`, before adding a rel type to `branching_rels`,
-require that at least one source node has ≥2 outgoing edges of that type —
-i.e. it actually forks somewhere, not just "carries an extra property
-somewhere." This also cleans up `required_branch_attrs` and
-`condition_key_attr`/`condition_value_attr` for free, since both are derived
-from `branching_rels`.
-
-```python
-outdeg_by_rel = defaultdict(lambda: defaultdict(int))
-for u, _, data in graph.edges(data=True):
-    outdeg_by_rel[data.get("rel")][u] += 1
-branching_rels = frozenset(
-    r for r in candidate_rels  # candidate_rels = current props_by_rel keys
-    if any(c >= 2 for c in outdeg_by_rel[r].values())
-)
-```
-
-**Secondary hardening**, independent of the fix above: have `validate.py`
-print the inferred schema (`branching_rels`, `branch_nodes`,
-`required_branch_attrs`, `condition_key_attr`/`condition_value_attr`) every
-run, so a reviewer can eyeball it. It's pattern-matching on graph shape, not
-a schema contract, so even a correct heuristic is worth a sanity check on
-every run, not just when something looks wrong.
-
-**Also add:** a regression test in `tests/test_schema.py` covering both repro
-cases above (shared-type cascade, single-edge pass-through) so this can't
-regress silently.
-
-## Bugs
-
-### 3. `diff_baseline.py` documented exit code 2 is unreachable
-
-The module docstring says "exit code ... 2 = cannot diff (e.g. cycle or path
-explosion)," but both places that should exit 2 use `sys.exit("message")`
-(lines ~134, ~143), which prints to stderr and exits with status **1** — the
-same code as "changes found." A caller branching on exit code can't tell
-"the graph has real changes to review" from "the diff itself couldn't run."
-
-**Fix:** `print(msg, file=sys.stderr); sys.exit(2)` in both spots.
-
-### 4. `diff_baseline.py --update` has no overwrite guard
-
-`bootstrap.py` explicitly refuses to overwrite an existing `expectations.yaml`
-(`sys.exit(f"refusing to overwrite existing {outpath} — move it first")`).
-`diff_baseline.py --update` has no equivalent check — it writes
-`expectations.yaml` next to the new graphml unconditionally (line ~168). If
-the new graphml is placed beside the committed baseline (a natural layout,
-and the one the README's own examples suggest), `--update` silently
-overwrites the very baseline file it just diffed against, before the
-reviewer has looked at `change_report.md`.
-
-**Fix:** either write to a `.new` / draft path and require an explicit
-promote step, or refuse to overwrite and tell the caller to move the file
-first, matching `bootstrap.py`'s behavior.
-
-### 5. `collapse_criteria()` silently drops data on parallel branches to the same child
-
-In `collapse_criteria()` (`src/validate.py` ~184–195), if two different
-branch edges from the same source, through two different branch nodes,
-resolve to the *same* child step, both get collapsed to the same
-`(src, child)` key in a plain `DiGraph`. `add_edge` overwrites rather than
-raising, so the first branch's condition data is silently lost and only the
-second remains.
-
-**Fix:** detect when `(src, children[0])` is already present with different
-edge data before overwriting, and raise — same posture as the existing
-"must have exactly one direct child" guard just above it.
+Two branch edges from one source resolving to the same child collapsed to the
+same `(src, child)` key; `add_edge` overwrote, discarding the first branch's
+condition. `collapse_branches()` now raises when an existing edge would be
+overwritten with different data. Covered by
+`test_validate.py::test_collapse_raises_rather_than_silently_dropping_a_parallel_branch`.
 
 ### 6. No multigraph guard
 
-`nx.read_graphml()` returns a `MultiDiGraph` when the export contains
-parallel relationships between the same two nodes (e.g. two different rel
-types connecting the same pair — not unusual in a real Neo4j export).
-Nothing in `normalize_graph()` or downstream checks for this; APIs called
-against a plain `DiGraph` (`graph.edges(data=True)`, `in_edges`, etc.) behave
-differently on a `MultiDiGraph`, and edges can be silently merged/dropped
-depending on how it's consumed.
+`nx.read_graphml()` returns a `MultiDiGraph` for parallel relationships, on
+which the module's `DiGraph` assumptions quietly break. `normalize_graph()`
+now rejects both multigraphs and undirected graphs with a clear message.
 
-**Fix:** assert `not graph.is_multigraph()` (and `graph.is_directed()`) in
-`normalize_graph()` and fail with a clear message rather than let it degrade
-quietly downstream.
+### 7. `bootstrap.py` exit code didn't match its docstring
 
-### 7. `bootstrap.py` exit code doesn't match its own docstring / the README
+Orphans, missing attrs and bare branches were printed as warnings while the
+script still exited 0, so a CI wrapper reading only the status saw success.
+`bootstrap.py` now exits 1 when `check_structure()` finds anything — while
+still writing the draft, so you can see what it would have approved. Exit 2 is
+reserved for "cannot bootstrap at all".
 
-The docstring says "Exit code 0 = draft written, 1 = graph problems prevent
-bootstrapping (e.g. a cycle)," and the README says bootstrap.py "aborts on
-structural problems." In practice only cycles and `collapse_criteria()`
-errors abort (`sys.exit(...)`, lines ~99, ~105). Orphans, missing required
-attrs, and bare branches are printed as warnings (`problems`) but the script
-still writes the draft and exits 0 — a CI wrapper checking exit status alone
-sees success even though real structural problems were flagged in the
-output it isn't reading.
+### 8. `condition_key_attr` could be set while `condition_value_attr` stayed `None`
 
-**Fix:** either make `bootstrap.py` exit non-zero when `problems` is
-non-empty, or fix the docstring/README to describe the actual (warn-only)
-behavior so nothing downstream relies on a guarantee that doesn't hold.
+`data.get(None)` is always `None`, so an edge was "allowed" only when the
+profile lookup also returned `None` — a silent, wrong condition. `load_shape()`
+now rejects a shape declaring one without the other, and `propose_shape.py`
+leaves both blank rather than proposing a half-filled pair.
 
-### 8. `condition_key_attr` can be set while `condition_value_attr` stays `None`
+### 9. Business-id node keys weren't stringified before sorting
 
-In `infer_schema()` (`src/schema.py` ~118–123), if all sibling branch edges
-share every required attr's value except one (the value attr), it's
-possible for the value-attr search to find nothing (leaves
-`condition_value_attr = None`) while the key-attr search still finds a
-constant-within-siblings attribute and sets `condition_key_attr`. Then in
-`edge_allowed()` (`src/validate.py` ~278–289):
+An APOC export with `useTypes: true` can yield integer ids; a later `sorted()`
+over mixed str/int node keys raised `TypeError`. `normalize_graph()` now calls
+`str()` when building `id_map`.
 
-```python
-return profile.get(data[schema.condition_key_attr]) == data.get(schema.condition_value_attr)
-```
+### 10. `enumerate_paths` couldn't approve or flag a single-node journey
 
-`data.get(None)` is always `None`, so the edge is only "allowed" when
-`profile.get(...)` happens to also be `None` — a silent, wrong condition
-rather than an error.
+A node that is both entry and terminal was skipped entirely, so it could
+neither appear in `approved_paths` nor be flagged if one appeared. It is now
+emitted as a single-node path `[node]`.
 
-**Fix:** only set `condition_key_attr` if `condition_value_attr` was also
-found; otherwise leave both `None` (which is already handled correctly —
-`edge_allowed()` treats an edge with no identified condition attr as
-unconditional).
+### 11. `propose_shape.py` silently resolved its own ambiguities — FIXED
 
-## Design risks worth a comment or guard
+The first version of `propose_shape.py` committed, in a smaller way, the same
+sin as `infer_schema()`: where evidence supported more than one reading it
+picked one and printed it as though it were a finding. Three demonstrated
+cases:
 
-### 9. Business-id node keys aren't stringified before sorting
+- **Tie-break by sort order.** The condition-attribute search took the first
+  attribute (alphabetically) that varied between sibling branches. Add an
+  `audit_ts` to your branch edges and it proposed `condition_value_attr:
+  audit_ts`, because `audit_ts` sorts before `condition_value`. Scenario walks
+  would then compare client profiles against timestamps and silently never
+  match.
+- **Classification from a sample of one.** A single pass-through node was
+  enough to declare its whole label a branch label. A `Disclosure` step — a
+  real, documented, client-facing regulatory step that happens to sit between
+  two others — was proposed as a branch point, which would collapse it out of
+  every path and exempt it from documentation checks.
+- **Unscoped exports legitimized rather than flagged.** On the whole-database
+  fixture it proposed `step_labels: [Account, Reviewed, Task]` and
+  `required_step_attrs: []` — `acct1` isn't part of the flow, but isn't a
+  pass-through either, so it was assumed to be a step, and its lack of
+  `rationale` emptied the intersection that defines the documentation
+  requirement.
 
-`normalize_graph()` relabels graph nodes to each node's business `id`
-property (`src/validate.py` ~92–102). If an APOC export with `useTypes:
-true` produces a non-string `id` (e.g. an integer), later `sorted(...)`
-calls over mixed node-key types (`sorted(entries)`, `sorted(paths)` in
-`validate.py`/`bootstrap.py`) will raise `TypeError: '<' not supported
-between instances of ...` the first time a str and non-str id are compared.
+**Fixed** by making every field either determined from unambiguous evidence
+or `UNRESOLVED` with a stated reason and an explicit question. Branch labels
+now require a genuine fork (some node with ≥2 outgoing edges into that label)
+plus a sample of ≥2 nodes. Condition attributes require exactly one candidate
+on each side. A label sharing no attributes with the dominant step label is
+refused rather than assumed. `required_step_attrs` reports near-misses by
+name instead of intersecting them away.
 
-**Fix:** `str(business_id)` when building `id_map` in `normalize_graph()`.
+`load_shape()` rejects any file still marked `UNRESOLVED`, naming every
+outstanding field — so a half-determined shape cannot reach a deploy gate by
+being ignored. Exit codes: 0 determined, 1 needs decisions, 2 unreadable.
+Covered by `tests/test_propose_shape.py` (13 tests), including all three
+cases above and the complement — that an unambiguous graph still resolves
+cleanly, so "refuse" cannot degenerate into refusing everything.
 
-### 10. `enumerate_paths` can't approve or flag a single-node journey
+**Residual, and irreducible:** the three refusal cases are genuine ambiguities
+in the data, not gaps in the implementation. No amount of topological analysis
+distinguishes a condition-carrier that never forks from an ordinary
+intermediate step, because they are the same shape. The tool asks instead.
 
-`enumerate_paths()` (`src/validate.py` ~204–222) explicitly skips `entry ==
-terminal`. A node that is simultaneously an entry and a terminal (a
-zero-step journey) can never appear in `approved_paths` and never gets
-flagged if one appears unexpectedly — it's invisible to layer 2 entirely,
-even though `check_structure`'s entry/terminal checks would still see it.
+### Minor, fixed
 
-**Fix:** decide intentionally whether a single-node journey should be
-representable in `approved_paths` (e.g. `[node]`), and either enumerate it
-or document why not.
+- `argparse` added to `validate.py`, `bootstrap.py`, `diff_baseline.py`,
+  `propose_shape.py` and `mine_rules.py` — missing args produce a usage
+  message, not an `IndexError` traceback.
+- `walk(..., schema=None)` is gone; shape is a required argument everywhere.
+- `check_rules()`'s mutual-exclusion message no longer says "both appear" for
+  a rule listing 3+ steps.
+- `.gitignore`'s stale `snapshot.py` comment replaced with the generated-output
+  paths (`paths.json`, `validation.json`, `change_report.md`,
+  `expectations.yaml.new`).
+- `walk()` now raises on revisiting a node instead of looping forever if
+  handed a cyclic graph directly.
+- `ruff check src tests` is clean.
 
-## Minor
+## Still open
 
-- No CLI arg parsing anywhere (`bootstrap.py`, `validate.py`,
-  `diff_baseline.py`, `mine_rules.py`) — missing/wrong args raise a raw
-  `IndexError` traceback instead of a usage message. `argparse` is a small
-  addition to each entry point.
-- `walk(..., schema: GraphSchema = None)` in `validate.py` — annotation
-  should be `GraphSchema | None` to match the codebase's `str | None` style
-  used elsewhere (e.g. `schema.py`'s `condition_key_attr: str | None`).
-- `check_rules()`'s mutual-exclusion failure message says "both appear"
-  (`src/validate.py` ~265) even when a rule lists 3+ mutually exclusive
-  steps.
-- `.gitignore`'s comment "generated graph snapshots (see snapshot.py)" is
-  stale — `src/snapshot.py` shows as deleted in the current working tree.
-- Stray `.DS_Store` files under repo root and `src/` (already gitignored,
-  just clutter locally).
-- No CI workflow configured despite this being explicitly a deploy-gate
-  tool, and no LICENSE file. `ruff` is a dev dependency but nothing runs it
-  anywhere (no pre-commit hook, no CI job).
+### 1. Working tree is not committed
 
-## Already fixed / not an issue
+Everything from this refactor is uncommitted, and the last five commits on
+`main` are all titled "react works" — which does not describe this repo's
+history. Before treating `main` as usable, review and commit:
 
-- Cyclic graphs, unreachable nodes, and unapproved journeys are all handled
+- new: `src/shape.py`, `src/propose_shape.py`, `tests/test_shape.py`,
+  `graphs/sample/`
+- deleted: `src/schema.py`, `tests/test_schema.py`, `src/expectations.yaml`
+  (superseded by `graphs/sample/expectations.yaml`)
+- modified: `src/validate.py`, `src/bootstrap.py`, `src/diff_baseline.py`,
+  `src/mine_rules.py`, `README.md`, `.gitignore`, and the three remaining
+  test modules
+
+### No CI workflow, no LICENSE
+
+`ruff` is a dev dependency but nothing runs it automatically — no pre-commit
+hook, no CI job — despite this being explicitly a deploy-gate tool. Worth a
+minimal GitHub Actions job running `uv sync && uv run ruff check && uv run
+pytest`, plus validating every graph under `graphs/` against its own baseline
+so the committed examples can't drift.
+
+### Scenario coverage is not measured
+
+Nothing reports which branches no scenario exercises. A baseline can have
+`scenarios: []` and still pass every layer, which is correct — layers 1–3 are
+structural — but a reviewer has no signal that layer 4 is checking nothing.
+Worth printing "N of M branch conditions exercised by scenarios" on each run.
+
+## Not an issue
+
+- Cyclic graphs, unreachable nodes and unapproved journeys are handled
   correctly and are covered by tests.
 - `edge_allowed()` correctly avoids `eval()`-ing any condition data — plain
   key/value lookup only, as the docstring promises.
+- Feeding in an unscoped whole-database export is not silently filtered: the
+  extra material now fails at layer 0 by name (`node(s) match no declared
+  label ['CriteriaNode', 'Task']: ['acct1' (labelled ['Account'])]`) rather
+  than several layers later as a mysterious dead end.

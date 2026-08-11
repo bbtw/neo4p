@@ -1,49 +1,52 @@
 """
-Validate a snapshotted planning graph.
+Validate one knowledge graph against its declared shape and its baseline.
 
-The graph holds two kinds of node: steps (client-facing tasks) and branch
-points (nodes that exist only to carry a condition). A conditional
-transition is step -branch-> branch node -direct-> step, with the condition
-living on the branch edge; an unconditional transition is a direct
-step -> step edge. Nothing about which labels or relationship-type names
-mean "step" or "branch" is hardcoded — schema.infer_schema() derives it from
-the graph's own structure every run (see that module's docstring for the
-two signals it uses). The graphml file is the only input this pipeline
-needs; there is no separate schema file to keep in sync with it.
+Three files in, one verdict out:
 
-Four layers:
-  1. structural - is the graph shaped the way you think it is?
-  2. paths      - enumerate every route a client could take, and flag any
-                  route that is not on the approved list
-  3. rules      - check every route against approved invariants (precedence,
-                  mutual exclusion) instead of the exact path list
-  4. scenario   - do known client profiles produce the expected task sequence?
+    graph.graphml       what the graph is now
+    shape.yaml          how to read it (see shape.py) — declared, not guessed
+    expectations.yaml   what it is allowed to do (the committed baseline)
 
-Layers 2-4 only ever reason about steps: collapse_criteria() first resolves
-every step -branch-> branch node -direct-> step chain into a plain
-step -> step edge carrying that branch's condition.
+Five layers, run in order. Each is independent and each reports what it
+checked, not just what failed:
+
+  0. shape     - does the graph match what shape.yaml claims about it?
+                 Every later layer reads the graph through the shape, so
+                 this runs first and stops everything if it fails.
+  1. structure - is the graph shaped the way you think? (acyclic, entries
+                 and terminals as expected, nothing unreachable, every step
+                 carrying its required documentation)
+  2. paths     - enumerate every route a client could take; flag any route
+                 not on the approved list, and any approved route that has
+                 gone missing
+  3. rules     - check every route against declared invariants (precedence,
+                 mutual exclusion) rather than the exact path list, so
+                 routes that don't exist yet are covered too
+  4. scenarios - do known client profiles walk the exact expected sequence?
+
+Layers 2-4 reason only about steps: collapse_branches() first resolves every
+step -branch-> branch node -direct-> step chain into a plain step -> step
+edge carrying that branch's condition.
 
 Usage:
-    python validate.py snapshots/20260806T142301Z/graph.graphml expectations.yaml
+    python validate.py graph.graphml shape.yaml expectations.yaml
 
-Writes paths.json and validation.json into the snapshot directory.
-Exit code 0 = all checks passed, 1 = something failed. Safe to run as an
-automated gate in whatever process governs graph changes.
+Writes paths.json and validation.json next to the graphml. Exit code 0 = all
+checks passed, 1 = something failed, 2 = could not run the checks at all
+(bad shape file, unreadable graph). Safe as an automated deploy gate.
 
-Takes a graphml file produced by apoc.export.graphml.* — scoped query or
-whole-database, useTypes on or off — as long as it is already scoped to the
-flow you want validated. There is no live Neo4j connection anywhere in this
-pipeline; the graphml file on disk is the only input. normalize_graph()
-reconciles pure export-format differences (which attribute holds the
-relationship type, exporter-assigned vs. business node ids); schema.infer_schema()
-then reads the graph's actual shape to work out what's a step, what's a
-branch, and what the branch condition looks like. Nothing here filters out
-unrelated nodes or edges: if you feed it more than the flow (e.g. a
-whole-database export with no scoping query), the extra material shows up
-as unreachable nodes or unexpected dead ends in check_structure()'s
-failures rather than being silently dropped.
+There is no live Neo4j connection anywhere in this pipeline; the graphml file
+on disk is the only graph input, typically produced by apoc.export.graphml.*
+(scoped query or whole-database, useTypes on or off). normalize_graph()
+reconciles pure export-format differences — which attribute holds the
+relationship type, exporter-assigned vs. business node ids — and nothing
+else. Nothing here filters out unrelated nodes: feed it a whole-database
+export with no scoping query and the extra material surfaces as unreachable
+nodes and unexpected dead ends in layer 1, rather than being silently
+dropped.
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -51,35 +54,49 @@ from pathlib import Path
 import networkx as nx
 import yaml
 
-from schema import GraphSchema, infer_schema
+from shape import GraphShape, check_shape, load_shape
 
-# A combinatorial graph can have astronomically many simple paths. If we blow
-# past this, the graph is too branchy to review path-by-path and you should
-# know that rather than wait for the script to finish.
+# A combinatorial graph can have astronomically many simple paths. Past this,
+# the graph is too branchy to review path-by-path and you should be told so
+# rather than left waiting on a script that never finishes.
 MAX_PATHS = 5000
 
 
 # --------------------------------------------------------------------------
-# 0. normalize a plain apoc.export.graphml.* export into this pipeline's
-#    internal attribute conventions (`rel`, business-id node keys)
+# 0. normalize export-format differences into this pipeline's conventions
 # --------------------------------------------------------------------------
 
-def normalize_graph(graph: nx.DiGraph) -> nx.DiGraph:
-    """Reconcile export-format differences only — not domain schema, which
-    infer_schema() derives from structure instead. Two things a graphml
-    writer can vary regardless of domain:
-      - which edge attribute holds the relationship type. This pipeline
-        reads it from `rel` everywhere past this point; apoc.export.graphml.*
-        calls it `label` instead. This picks whichever of a short list of
-        common names is present on every edge and copies it into `rel`.
-      - node identity: apoc.export.graphml.* keys graphml nodes on an
-        exporter-assigned id (e.g. "n188"), not the node's own business `id`
-        property. If a node carries an `id` property that differs from its
-        graphml node id, this relabels the graph to use it, so node identity
-        is stable across re-exports of the same graph.
-    A no-op on a graphml that already uses `rel` and business ids as its
-    node keys (e.g. a hand-authored test fixture).
+def normalize_graph(graph) -> nx.DiGraph:
+    """Reconcile export-format differences only — never domain meaning, which
+    comes from shape.yaml. Three things a graphml writer can vary:
+
+      - which edge attribute holds the relationship type. This pipeline reads
+        `rel` everywhere past this point; apoc.export.graphml.* calls it
+        `label`. Whichever of a short candidate list is present on every edge
+        gets copied into `rel`.
+      - node identity: APOC keys graphml nodes on an exporter-assigned id
+        ("n188"), not the node's business `id` property. If a node carries an
+        `id` that differs from its graphml key, the graph is relabelled to
+        use it, so identity is stable across re-exports.
+      - parallel edges: an export containing two relationships between the
+        same pair of nodes reads back as a MultiDiGraph, on which the rest of
+        this module's DiGraph assumptions quietly break. Rejected outright.
+
+    A no-op on a graphml that already uses `rel` and business ids (e.g. a
+    hand-authored fixture).
     """
+    if graph.is_multigraph():
+        parallel = sorted(
+            {(u, v) for u, v, k in graph.edges(keys=True) if k > 0}
+        )
+        raise ValueError(
+            "graph has parallel relationships between the same pair of nodes "
+            f"(e.g. {parallel[:3]}), which this pipeline cannot validate "
+            "unambiguously — scope the export to one relationship type per pair"
+        )
+    if not graph.is_directed():
+        raise ValueError("graph is undirected; a planning flow must be directed")
+
     REL_KEY_CANDIDATES = ("rel", "type", "label")
     edges = list(graph.edges(data=True))
     if edges and not all("rel" in data for _, _, data in edges):
@@ -89,11 +106,14 @@ def normalize_graph(graph: nx.DiGraph) -> nx.DiGraph:
                     data["rel"] = data.pop(key)
                 break
 
+    # Business ids are stringified: an APOC export with useTypes:true can
+    # yield integer ids, and later sorted() calls over a mix of str and int
+    # node keys raise TypeError.
     id_map = {}
     for node, data in graph.nodes(data=True):
         business_id = data.get("id")
-        if business_id and business_id != node:
-            id_map[node] = business_id
+        if business_id is not None and business_id != "" and str(business_id) != node:
+            id_map[node] = str(business_id)
     if id_map:
         if len(set(id_map.values())) != len(id_map):
             counts = {v: list(id_map.values()).count(v) for v in id_map.values()}
@@ -110,13 +130,12 @@ def normalize_graph(graph: nx.DiGraph) -> nx.DiGraph:
 
 def check_structure(
     graph: nx.DiGraph,
+    shape: GraphShape,
     expected_entries: list[str],
     expected_terminals: list[str],
-    required_step_attrs: tuple = (),
 ) -> list[str]:
     """Return a list of failure strings. Empty list means the graph is sound."""
     failures = []
-    schema = infer_schema(graph)
 
     # A recommendation flow should never loop back on itself.
     if not nx.is_directed_acyclic_graph(graph):
@@ -144,24 +163,24 @@ def check_structure(
     if unexpected:
         failures.append(f"unexpected dead ends: {sorted(unexpected)}")
 
-    # Every step carries its required metadata. Branch nodes are exempt —
-    # they hold a condition, not client-facing documentation.
+    # Every step carries its required documentation. Branch nodes are exempt
+    # — they hold a condition, not client-facing documentation. Which nodes
+    # those are comes from the declared labels, so a node cannot become
+    # exempt by accident.
     for node, data in graph.nodes(data=True):
-        if schema.is_branch(node):
+        if shape.is_branch_node(data):
             continue
-        missing = [a for a in required_step_attrs if not data.get(a)]
+        missing = [a for a in shape.required_step_attrs if not data.get(a)]
         if missing:
-            failures.append(f"task {node!r} missing {missing}")
+            failures.append(f"step {node!r} missing {missing}")
 
-    # Every branch-type edge should carry what the rest of its type carries.
-    # Plain direct edges are unconditional by construction and exempt.
-    if schema.required_branch_attrs:
-        for src, dst, data in graph.edges(data=True):
-            if data.get("rel") not in schema.branching_rels:
-                continue
-            missing = [a for a in schema.required_branch_attrs if a not in data]
-            if missing:
-                failures.append(f"branch {src!r} -> {dst!r} missing {missing}")
+    # Every branch edge carries what a branch edge is declared to carry.
+    for src, dst, data in graph.edges(data=True):
+        if not shape.is_branch_edge(data):
+            continue
+        missing = [a for a in shape.required_branch_attrs if a not in data]
+        if missing:
+            failures.append(f"branch {src!r} -> {dst!r} missing {missing}")
 
     return failures
 
@@ -170,29 +189,47 @@ def check_structure(
 # 1b. collapse branch nodes into plain step -> step edges
 # --------------------------------------------------------------------------
 
-def collapse_criteria(graph: nx.DiGraph) -> nx.DiGraph:
+def collapse_branches(graph: nx.DiGraph, shape: GraphShape) -> nx.DiGraph:
     """Resolve every step -branch-> branch node -direct-> step chain into a
     direct step -> step edge carrying the branch's condition, so path
-    enumeration, rule checks, and scenario walks only ever see steps.
+    enumeration, rule checks and scenario walks only ever see steps.
+
+    Assumes check_shape() has already passed: every branch node has exactly
+    one child and is reached only by branch edges. Anything still surprising
+    at this point raises rather than dropping data.
     """
-    schema = infer_schema(graph)
     collapsed = nx.DiGraph()
     for node, data in graph.nodes(data=True):
-        if not schema.is_branch(node):
+        if not shape.is_branch_node(data):
             collapsed.add_node(node, **data)
 
     for src, dst, data in graph.edges(data=True):
-        rel = data.get("rel")
-        if rel not in schema.branching_rels and src in collapsed and dst in collapsed:
-            collapsed.add_edge(src, dst, **data)
-        elif rel in schema.branching_rels:
-            children = [c for c in graph.successors(dst) if not schema.is_branch(c)]
+        if shape.is_branch_node(graph.nodes[src]):
+            continue  # the branch node's own outgoing edge, folded in below
+
+        if shape.is_branch_node(graph.nodes[dst]):
+            children = list(graph.successors(dst))
             if len(children) != 1:
                 raise ValueError(
                     f"branch node {dst!r} must have exactly one direct child, "
-                    f"found {children}"
+                    f"found {sorted(children)}"
                 )
-            collapsed.add_edge(src, children[0], **data)
+            target = children[0]
+        else:
+            target = dst
+
+        # Two branches from the same source resolving to the same step would
+        # overwrite each other in a plain DiGraph, silently discarding the
+        # first branch's condition. That is a real modelling ambiguity, not
+        # something to paper over.
+        if collapsed.has_edge(src, target) and collapsed.edges[src, target] != data:
+            raise ValueError(
+                f"two distinct transitions from {src!r} both resolve to "
+                f"{target!r} with different conditions "
+                f"({collapsed.edges[src, target]} vs {data}); the graph cannot "
+                "express which one applies"
+            )
+        collapsed.add_edge(src, target, **data)
 
     return collapsed
 
@@ -204,13 +241,21 @@ def collapse_criteria(graph: nx.DiGraph) -> nx.DiGraph:
 def enumerate_paths(
     graph: nx.DiGraph, entries: list[str], terminals: list[str]
 ) -> list[list[str]]:
-    """Every simple route from an entry point to an endpoint, sorted for diffing."""
+    """Every simple route from an entry point to an endpoint, sorted for
+    diffing. A node that is both an entry and a terminal is a real, if
+    degenerate, zero-step journey and is emitted as a single-node path, so it
+    can be approved in expectations.yaml like any other."""
     paths = []
     for entry in sorted(entries):
         if entry not in graph:
             continue
         for terminal in sorted(terminals):
-            if terminal not in graph or entry == terminal or not nx.has_path(graph, entry, terminal):
+            if terminal not in graph:
+                continue
+            if entry == terminal:
+                paths.append([entry])
+                continue
+            if not nx.has_path(graph, entry, terminal):
                 continue
             for path in nx.all_simple_paths(graph, entry, terminal):
                 paths.append(path)
@@ -241,15 +286,15 @@ def check_paths(actual: list[list[str]], approved: list[list[str]]) -> list[str]
 # --------------------------------------------------------------------------
 
 def check_rules(paths: list[list[str]], rules: list[dict]) -> list[str]:
-    """Check every path against approved invariants instead of an exact list.
+    """Check every path against declared invariants instead of an exact list.
 
-    Covers paths that don't exist yet, not just the ones enumerated today —
-    see mine_rules.py for generating an initial rule set from the current
-    path list.
+    Covers routes that don't exist yet, not just the ones enumerated today —
+    see propose_shape.py / mine_rules.py for generating an initial rule set
+    from the current path list.
     """
     failures = []
     for rule in rules:
-        kind = rule["type"]
+        kind = rule.get("type")
         if kind == "precedence":
             before, after = rule["before"], rule["after"]
             for path in paths:
@@ -261,10 +306,11 @@ def check_rules(paths: list[list[str]], rules: list[dict]) -> list[str]:
         elif kind == "mutual_exclusion":
             steps = set(rule["steps"])
             for path in paths:
+                overlap = steps & set(path)
                 if steps <= set(path):
                     failures.append(
-                        f"mutual exclusion rule violated: {sorted(steps)} "
-                        f"both appear in {path}"
+                        f"mutual exclusion rule violated: {sorted(overlap)} "
+                        f"appear together in {path}"
                     )
         else:
             failures.append(f"unknown rule type: {kind!r}")
@@ -275,32 +321,33 @@ def check_rules(paths: list[list[str]], rules: list[dict]) -> list[str]:
 # 4. scenario checks
 # --------------------------------------------------------------------------
 
-def edge_allowed(profile: dict, data: dict, schema: GraphSchema) -> bool:
-    """
-    Conditions are stored as a key/value pair, not as an expression string,
-    so this is a plain lookup. Never eval() a condition pulled from a database.
+def edge_allowed(profile: dict, data: dict, shape: GraphShape) -> bool:
+    """Conditions are a declared key/value attribute pair, not an expression
+    string, so this is a plain lookup. Never eval() a condition pulled from a
+    database.
 
-    An edge with no condition attribute on it (schema couldn't identify one,
-    or this particular edge doesn't carry one) is treated as unconditional —
-    always taken.
+    An edge carrying no condition attribute is unconditional — always taken.
+    Because both attribute names come from shape.yaml and are validated to be
+    declared together, there is no case where a half-identified condition
+    silently evaluates to "never matches".
     """
-    if not schema.condition_key_attr or schema.condition_key_attr not in data:
+    if not shape.has_condition() or shape.condition_key_attr not in data:
         return True
-    return profile.get(data[schema.condition_key_attr]) == data.get(schema.condition_value_attr)
+    return profile.get(data[shape.condition_key_attr]) == data.get(
+        shape.condition_value_attr
+    )
 
 
-def walk(graph: nx.DiGraph, start: str, profile: dict, schema: GraphSchema = None) -> list[str]:
+def walk(graph: nx.DiGraph, start: str, profile: dict, shape: GraphShape) -> list[str]:
     """Follow the one edge whose condition the profile satisfies, until we stop."""
-    if schema is None:
-        schema = infer_schema(graph)
-
     path = [start]
     node = start
+    seen = {start}
 
     while True:
         options = [
             dst for _, dst, data in graph.out_edges(node, data=True)
-            if edge_allowed(profile, data, schema)
+            if edge_allowed(profile, data, shape)
         ]
         if not options:
             return path
@@ -308,23 +355,30 @@ def walk(graph: nx.DiGraph, start: str, profile: dict, schema: GraphSchema = Non
             raise ValueError(f"ambiguous branch at {node!r}: {sorted(options)}")
 
         node = options[0]
+        if node in seen:
+            raise ValueError(f"walk revisited {node!r}; the graph contains a cycle")
+        seen.add(node)
         path.append(node)
 
 
 def check_scenarios(
-    graph: nx.DiGraph, scenarios: list[dict], schema: GraphSchema = None
+    graph: nx.DiGraph, scenarios: list[dict], shape: GraphShape
 ) -> list[str]:
-    if schema is None:
-        schema = infer_schema(graph)
-
     failures = []
     for case in scenarios:
         name = case["name"]
         if case["start"] not in graph:
             failures.append(f"scenario {name!r}: start step {case['start']!r} not in graph")
             continue
+        if not shape.has_condition():
+            failures.append(
+                f"scenario {name!r}: shape declares no condition attributes, so "
+                "no profile can steer a branch — declare condition_key_attr and "
+                "condition_value_attr, or remove the scenarios"
+            )
+            continue
         try:
-            actual = walk(graph, case["start"], case["profile"], schema)
+            actual = walk(graph, case["start"], case["profile"], shape)
         except ValueError as exc:
             failures.append(f"scenario {name!r}: {exc}")
             continue
@@ -337,59 +391,157 @@ def check_scenarios(
 
 # --------------------------------------------------------------------------
 
-def main() -> None:
-    graphml_path, expectations_path = Path(sys.argv[1]), Path(sys.argv[2])
-    outdir = graphml_path.parent
-
+def run(graphml_path: Path, shape_path: Path, expectations_path: Path) -> dict:
+    """Run every layer. Returns the report dict; writes nothing."""
+    shape = load_shape(shape_path)
     graph = normalize_graph(nx.read_graphml(graphml_path))
-    config = yaml.safe_load(expectations_path.read_text())
+    config = yaml.safe_load(expectations_path.read_text()) or {}
 
     entries = config["expected_entries"]
     terminals = config["expected_terminals"]
-    required_step_attrs = tuple(config.get("required_step_attrs", []))
 
-    failures = check_structure(graph, entries, terminals, required_step_attrs)
-    schema = infer_schema(graph)
+    layers = {}
+    paths = []
+
+    # Layer 0 — the premise for everything else.
+    layers["shape"] = check_shape(graph, shape)
+    if layers["shape"]:
+        return {
+            "graphml": str(graphml_path),
+            "shape_file": str(shape_path),
+            "expectations": str(expectations_path),
+            "passed": False,
+            "node_count": graph.number_of_nodes(),
+            "edge_count": graph.number_of_edges(),
+            "path_count": 0,
+            "layers": layers,
+            "failures": layers["shape"],
+            "stopped_after": "shape",
+        }
+
+    layers["structure"] = check_structure(graph, shape, entries, terminals)
 
     try:
-        collapsed = collapse_criteria(graph)
+        collapsed = collapse_branches(graph, shape)
     except ValueError as exc:
-        failures.append(str(exc))
+        layers["structure"] = layers["structure"] + [str(exc)]
         collapsed = None
 
-    paths = []
+    layers["paths"] = []
+    layers["rules"] = []
+    layers["scenarios"] = []
+
     if collapsed is not None:
-        # Only enumerate paths if the graph is acyclic; otherwise it never terminates.
+        # Path enumeration never terminates on a cyclic graph.
         if nx.is_directed_acyclic_graph(graph):
             try:
                 paths = enumerate_paths(collapsed, entries, terminals)
-                (outdir / "paths.json").write_text(json.dumps(paths, indent=2) + "\n")
-                failures += check_paths(paths, config.get("approved_paths", []))
-                failures += check_rules(paths, config.get("rules", []))
+                layers["paths"] = check_paths(paths, config.get("approved_paths", []))
+                layers["rules"] = check_rules(paths, config.get("rules", []))
             except ValueError as exc:
-                failures.append(str(exc))
+                layers["paths"] = [str(exc)]
+        else:
+            layers["paths"] = ["skipped: graph contains a cycle"]
 
-        failures += check_scenarios(collapsed, config.get("scenarios", []), schema)
+        layers["scenarios"] = check_scenarios(
+            collapsed, config.get("scenarios", []), shape
+        )
 
-    report = {
+    failures = [f for layer in layers.values() for f in layer]
+
+    return {
         "graphml": str(graphml_path),
+        "shape_file": str(shape_path),
+        "expectations": str(expectations_path),
         "passed": not failures,
         "node_count": graph.number_of_nodes(),
         "edge_count": graph.number_of_edges(),
+        "step_count": sum(
+            1 for _, d in graph.nodes(data=True) if not shape.is_branch_node(d)
+        ),
         "path_count": len(paths),
+        "counts": {
+            "approved_paths": len(config.get("approved_paths", [])),
+            "rules": len(config.get("rules", [])),
+            "scenarios": len(config.get("scenarios", [])),
+        },
+        "layers": layers,
         "failures": failures,
+        "paths": paths,
     }
+
+
+LAYER_LABELS = {
+    "shape": "graph matches shape.yaml",
+    "structure": "entries, terminals, reachability, required attributes",
+    "paths": "every route is on the approved list",
+    "rules": "declared invariants hold on every route",
+    "scenarios": "known profiles walk their expected sequence",
+}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Validate a knowledge graph against its shape and baseline.",
+    )
+    parser.add_argument("graphml", type=Path, help="graph.graphml to validate")
+    parser.add_argument("shape", type=Path, help="shape.yaml describing how to read it")
+    parser.add_argument(
+        "expectations", type=Path, help="expectations.yaml — the committed baseline"
+    )
+    parser.add_argument(
+        "--outdir",
+        type=Path,
+        default=None,
+        help="where to write paths.json and validation.json (default: next to the graphml)",
+    )
+    args = parser.parse_args()
+
+    for path in (args.graphml, args.shape, args.expectations):
+        if not path.exists():
+            print(f"no such file: {path}", file=sys.stderr)
+            sys.exit(2)
+
+    # Print the shape before anything else: it is the premise every result
+    # below depends on, so it should never be something you go look up.
+    try:
+        print(load_shape(args.shape).describe())
+        print()
+        report = run(args.graphml, args.shape, args.expectations)
+    except (ValueError, KeyError) as exc:
+        print(f"cannot validate: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    outdir = args.outdir or args.graphml.parent
+    outdir.mkdir(parents=True, exist_ok=True)
+    (outdir / "paths.json").write_text(json.dumps(report.pop("paths", []), indent=2) + "\n")
     (outdir / "validation.json").write_text(json.dumps(report, indent=2) + "\n")
 
-    if failures:
-        print(f"FAILED ({len(failures)} problems)\n")
-        for line in failures:
-            print(f"  - {line}")
+    # Report every layer, passing or failing — a gate that only ever prints
+    # failures gives you no way to tell "checked and clean" from "never ran".
+    for name, description in LAYER_LABELS.items():
+        results = report["layers"].get(name)
+        if results is None:
+            print(f"  ---- {name:<10} not reached ({description})")
+            continue
+        if results:
+            print(f"  FAIL {name:<10} {len(results)} problem(s) ({description})")
+            for line in results:
+                print(f"         - {line}")
+        else:
+            print(f"  ok   {name:<10} {description}")
+
+    print()
+    if report["failures"]:
+        print(f"FAILED — {len(report['failures'])} problem(s)")
         sys.exit(1)
 
+    counts = report["counts"]
     print(
-        f"PASSED - {graph.number_of_nodes()} nodes, "
-        f"{graph.number_of_edges()} edges, {len(paths)} client journeys"
+        f"PASSED — {report['step_count']} steps, {report['edge_count']} edges, "
+        f"{report['path_count']} client journeys checked against "
+        f"{counts['approved_paths']} approved, {counts['rules']} rules, "
+        f"{counts['scenarios']} scenarios"
     )
 
 

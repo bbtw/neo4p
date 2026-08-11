@@ -8,11 +8,14 @@ the ones you actually mean into expectations.yaml's `rules:` list, then
 validate.py's check_rules() enforces them on every future run.
 
 Usage:
-    python mine_rules.py snapshots/sample/paths.json
+    python mine_rules.py paths.json
+
+Reads the paths.json that validate.py writes, and drops mined_rules.yaml
+next to it.
 """
 
+import argparse
 import json
-import sys
 from itertools import combinations
 from pathlib import Path
 
@@ -53,7 +56,11 @@ def mine_mutual_exclusion(paths: list[list[str]], terminals: set[str]) -> list[d
 
 
 def main() -> None:
-    paths_path = Path(sys.argv[1])
+    parser = argparse.ArgumentParser(
+        description="Mine candidate rules from an enumerated path list.",
+    )
+    parser.add_argument("paths", type=Path, help="paths.json written by validate.py")
+    paths_path = parser.parse_args().paths
     paths = json.loads(paths_path.read_text())
 
     entries = {path[0] for path in paths}

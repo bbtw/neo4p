@@ -1,0 +1,99 @@
+# GENERATED BASELINE — draft expectations.yaml bootstrapped from:
+#   graph: graphs/sample/graph.graphml
+#   shape: graphs/sample/shape.yaml
+#
+# Everything below describes what the graph CURRENTLY does, bugs included.
+# Validating the same graph against this file passes by construction.
+# Before committing:
+#   1. Review approved_paths: every journey listed here gets signed off.
+#   2. Review rules: keep only the invariants you actually mean to enforce,
+#      and hand-write rules the miner cannot see (e.g. mutual exclusion
+#      against steps that do not exist in the graph yet).
+#   3. Write scenarios: known client profiles and the exact task sequence
+#      each must produce. These cannot be derived from topology.
+# The git diff of this file is the review record for every change after it.
+expected_entries:
+- emergency_fund
+expected_terminals:
+- estate_review
+- taxable_brokerage
+approved_paths:
+- - emergency_fund
+  - employer_match_401k
+  - roth_ira
+  - estate_review
+- - emergency_fund
+  - employer_match_401k
+  - roth_ira
+  - taxable_brokerage
+- - emergency_fund
+  - employer_match_401k
+  - taxable_brokerage
+- - emergency_fund
+  - pay_down_high_interest
+  - employer_match_401k
+  - roth_ira
+  - estate_review
+- - emergency_fund
+  - pay_down_high_interest
+  - employer_match_401k
+  - roth_ira
+  - taxable_brokerage
+- - emergency_fund
+  - pay_down_high_interest
+  - employer_match_401k
+  - taxable_brokerage
+rules:
+- type: precedence
+  before: employer_match_401k
+  after: estate_review
+- type: precedence
+  before: pay_down_high_interest
+  after: employer_match_401k
+- type: precedence
+  before: employer_match_401k
+  after: roth_ira
+- type: precedence
+  before: employer_match_401k
+  after: taxable_brokerage
+- type: precedence
+  before: pay_down_high_interest
+  after: estate_review
+- type: precedence
+  before: roth_ira
+  after: estate_review
+- type: precedence
+  before: pay_down_high_interest
+  after: roth_ira
+- type: precedence
+  before: pay_down_high_interest
+  after: taxable_brokerage
+- type: precedence
+  before: roth_ira
+  after: taxable_brokerage
+# Hand-written: concrete client profiles and the exact step sequence each
+# must produce. Cannot be derived from topology — this is the layer that
+# says what the graph is FOR, not just what shape it is.
+scenarios:
+- name: funded emergency fund, no debt, prefers Roth then estate review
+  start: emergency_fund
+  profile:
+    fund_status: funded_clear
+    next_vehicle: roth
+    after_roth: estate
+  expected_path:
+  - emergency_fund
+  - employer_match_401k
+  - roth_ira
+  - estate_review
+- name: carrying high-interest debt, clears it, then taxable
+  start: emergency_fund
+  profile:
+    fund_status: funded_with_debt
+    debt_cleared: 'yes'
+    next_vehicle: taxable
+  expected_path:
+  - emergency_fund
+  - pay_down_high_interest
+  - employer_match_401k
+  - taxable_brokerage

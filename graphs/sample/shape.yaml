@@ -1,0 +1,39 @@
+# How to read this graph. Declared, never inferred — every check in
+# validate.py reads the graph through this file, so it is the first thing a
+# reviewer should read and the first thing validate.py prints.
+#
+# Started from `python src/propose_shape.py graphs/sample/graph.graphml`,
+# then reviewed by hand.
+
+# Node labels that mean "a client-facing step". Read from each node's
+# `labels` attribute, which every graphml export carries (APOC included).
+step_labels:
+  - Task
+
+# Node labels that mean "a branch point": a node that exists only to carry a
+# condition. These are collapsed away before path checks, and are exempt
+# from required_step_attrs. Getting this list wrong is the single most
+# consequential mistake possible in this file.
+branch_labels:
+  - CriteriaNode
+
+# Relationship types that fork from a step into a branch point.
+branch_rels:
+  - CRITERIA_BRANCH
+
+# Where a branch condition lives on the edge. condition_key_attr names the
+# client-profile field to look up; condition_value_attr is the value it must
+# equal for that branch to be taken. Both or neither — a key without a value
+# would silently make every condition never match.
+condition_key_attr: condition_key
+condition_value_attr: condition_value
+
+# Documentation every step must carry. Branch points are exempt.
+required_step_attrs:
+  - rationale
+  - source_doc
+
+# Data every branch edge must carry.
+required_branch_attrs:
+  - condition_key
+  - condition_value

@@ -58,8 +58,14 @@ Thumbs.db
 
 # profiling
 
-# generated graph snapshots (see snapshot.py)
-snapshots/
+# validation output, regenerated on every run — never committed
+paths.json
+validation.json
+change_report.md
+expectations.yaml.new
+
+# graph.graphml, shape.yaml and expectations.yaml under graphs/ ARE committed:
+# they are the baseline and the change record.
 
 # local Claude Code settings
 .claude/settings.local.json

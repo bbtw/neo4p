@@ -2,8 +2,30 @@ import networkx as nx
 import pytest
 
 import validate
-from schema import GraphSchema
+from shape import GraphShape
 
+SHAPE = GraphShape(
+    step_labels=frozenset({"Task"}),
+    branch_labels=frozenset({"CriteriaNode"}),
+    branch_rels=frozenset({"CRITERIA_BRANCH"}),
+    condition_key_attr="condition_key",
+    condition_value_attr="condition_value",
+    required_step_attrs=("rationale", "source_doc"),
+    required_branch_attrs=("condition_key", "condition_value"),
+)
+
+
+def _task(**overrides):
+    return {"labels": "Task", "rationale": "r", "source_doc": "d", **overrides}
+
+
+def _criteria(**overrides):
+    return {"labels": "CriteriaNode", **overrides}
+
+
+# --------------------------------------------------------------------------
+# rules
+# --------------------------------------------------------------------------
 
 def test_check_rules_precedence_violation():
     rules = [{"type": "precedence", "before": "b", "after": "a"}]
@@ -30,10 +52,22 @@ def test_check_rules_mutual_exclusion_satisfied():
     assert validate.check_rules([["a", "b", "c"]], rules) == []
 
 
+def test_check_rules_mutual_exclusion_message_lists_all_offenders():
+    """Three-way exclusion used to report 'both appear'."""
+    rules = [{"type": "mutual_exclusion", "steps": ["a", "b", "c"]}]
+    failures = validate.check_rules([["a", "b", "c"]], rules)
+    assert "both" not in failures[0]
+    assert "['a', 'b', 'c']" in failures[0]
+
+
 def test_check_rules_unknown_type():
     failures = validate.check_rules([["a"]], [{"type": "weird"}])
     assert failures == ["unknown rule type: 'weird'"]
 
+
+# --------------------------------------------------------------------------
+# paths
+# --------------------------------------------------------------------------
 
 def test_check_paths_flags_unapproved_journey():
     failures = validate.check_paths(actual=[["a", "b"], ["a", "c"]], approved=[["a", "b"]])
@@ -61,18 +95,22 @@ def test_enumerate_paths_raises_past_max_paths(monkeypatch):
         validate.enumerate_paths(graph, ["entry"], ["terminal"])
 
 
-def _explicit_schema(condition_key_attr="condition_key", condition_value_attr="condition_value"):
-    """A schema built by hand rather than inferred, for tests that exercise
-    walk()'s branch-selection logic in isolation from schema inference
-    itself (which is tested separately, below)."""
-    return GraphSchema(
-        branching_rels=frozenset({None}),
-        branch_nodes=frozenset(),
-        required_branch_attrs=(condition_key_attr, condition_value_attr),
-        condition_key_attr=condition_key_attr,
-        condition_value_attr=condition_value_attr,
-    )
+def test_enumerate_paths_emits_a_single_node_journey():
+    """A node that is both entry and terminal is a real zero-step journey.
+    It used to be skipped entirely, so it could neither be approved nor
+    flagged (ISSUES.md #10)."""
+    graph = nx.DiGraph()
+    graph.add_node("lone")
+    graph.add_edge("entry", "terminal")
 
+    paths = validate.enumerate_paths(graph, ["entry", "lone"], ["terminal", "lone"])
+
+    assert ["lone"] in paths
+
+
+# --------------------------------------------------------------------------
+# walk / scenarios
+# --------------------------------------------------------------------------
 
 def test_walk_raises_on_ambiguous_branch():
     graph = nx.DiGraph()
@@ -81,7 +119,7 @@ def test_walk_raises_on_ambiguous_branch():
     profile = {"k1": "v1", "k2": "v2"}
 
     with pytest.raises(ValueError, match="ambiguous branch at 'x'"):
-        validate.walk(graph, "x", profile, _explicit_schema())
+        validate.walk(graph, "x", profile, SHAPE)
 
 
 def test_walk_follows_the_matching_edge():
@@ -89,7 +127,16 @@ def test_walk_follows_the_matching_edge():
     graph.add_edge("x", "y", condition_key="k", condition_value="match")
     graph.add_edge("x", "z", condition_key="k", condition_value="other")
 
-    assert validate.walk(graph, "x", {"k": "match"}, _explicit_schema()) == ["x", "y"]
+    assert validate.walk(graph, "x", {"k": "match"}, SHAPE) == ["x", "y"]
+
+
+def test_walk_raises_rather_than_looping_forever_on_a_cycle():
+    graph = nx.DiGraph()
+    graph.add_edge("x", "y")
+    graph.add_edge("y", "x")
+
+    with pytest.raises(ValueError, match="revisited"):
+        validate.walk(graph, "x", {}, SHAPE)
 
 
 def test_check_scenarios_flags_missing_start_node():
@@ -99,20 +146,34 @@ def test_check_scenarios_flags_missing_start_node():
         {"name": "bad start", "start": "missing", "profile": {}, "expected_path": ["missing"]}
     ]
 
-    failures = validate.check_scenarios(graph, scenarios)
+    failures = validate.check_scenarios(graph, scenarios, SHAPE)
     assert len(failures) == 1
     assert "not in graph" in failures[0]
 
 
-def _task(**overrides):
-    return {"labels": "Task", "rationale": "r", "source_doc": "d", **overrides}
+def test_check_scenarios_refuses_to_run_without_declared_conditions():
+    """A shape with no condition attributes cannot steer a branch. Saying so
+    beats silently walking whichever edge comes first."""
+    shapeless = GraphShape(
+        step_labels=frozenset({"Task"}),
+        branch_labels=frozenset(),
+        branch_rels=frozenset(),
+    )
+    graph = nx.DiGraph()
+    graph.add_edge("a", "b")
+    scenarios = [
+        {"name": "s", "start": "a", "profile": {"k": "v"}, "expected_path": ["a", "b"]}
+    ]
+
+    failures = validate.check_scenarios(graph, scenarios, shapeless)
+    assert "declares no condition attributes" in failures[0]
 
 
-def _criteria(**overrides):
-    return {"labels": "CriteriaNode", **overrides}
+# --------------------------------------------------------------------------
+# structure
+# --------------------------------------------------------------------------
 
-
-def test_check_structure_does_not_require_rationale_on_criteria_nodes():
+def test_check_structure_does_not_require_rationale_on_branch_nodes():
     graph = nx.DiGraph()
     graph.add_node("a", **_task())
     graph.add_node("cn", **_criteria())
@@ -120,32 +181,54 @@ def test_check_structure_does_not_require_rationale_on_criteria_nodes():
     graph.add_edge("a", "cn", rel="CRITERIA_BRANCH", condition_key="k", condition_value="v")
     graph.add_edge("cn", "b", rel="HAS_CHILD")
 
-    failures = validate.check_structure(
-        graph, ["a"], ["b"], required_step_attrs=("rationale", "source_doc")
-    )
-    assert failures == []
+    assert validate.check_structure(graph, SHAPE, ["a"], ["b"]) == []
 
 
-def test_check_structure_requires_condition_on_criteria_branch_only():
-    """CRITERIA_BRANCH is established as a branch type by cn2's edge, which
-    does carry a condition; that lets the malformed 'a' -> 'cn' edge (same
-    type, no condition) be recognized as missing what its type requires."""
+def test_check_structure_flags_branch_edge_missing_its_condition():
     graph = nx.DiGraph()
     graph.add_node("a", **_task())
     graph.add_node("cn", **_criteria())
-    graph.add_node("cn2", **_criteria())
     graph.add_node("b", **_task())
-    graph.add_node("c", **_task())
-    graph.add_edge("a", "cn2", rel="CRITERIA_BRANCH", condition_key="k", condition_value="v")
-    graph.add_edge("cn2", "c", rel="HAS_CHILD")
     graph.add_edge("a", "cn", rel="CRITERIA_BRANCH")  # missing condition_key/value
     graph.add_edge("cn", "b", rel="HAS_CHILD")
 
-    failures = validate.check_structure(graph, ["a"], ["b", "c"])
+    failures = validate.check_structure(graph, SHAPE, ["a"], ["b"])
     assert any("branch 'a' -> 'cn' missing" in f for f in failures)
 
 
-def test_collapse_criteria_resolves_task_criteria_task_chain():
+def test_check_structure_flags_step_missing_documentation():
+    graph = nx.DiGraph()
+    graph.add_node("a", **_task())
+    graph.add_node("b", labels="Task")  # no rationale, no source_doc
+    graph.add_edge("a", "b", rel="HAS_CHILD")
+
+    failures = validate.check_structure(graph, SHAPE, ["a"], ["b"])
+    assert any("step 'b' missing" in f for f in failures)
+
+
+def test_check_structure_flags_unreachable_nodes():
+    """A detached island only counts as unreachable if nothing in it is an
+    entry point — so the island here is a small cycle, which no entry leads
+    to and which therefore no client could ever arrive at."""
+    graph = nx.DiGraph()
+    graph.add_node("a", **_task())
+    graph.add_node("b", **_task())
+    graph.add_node("island_x", **_task())
+    graph.add_node("island_y", **_task())
+    graph.add_edge("a", "b", rel="HAS_CHILD")
+    graph.add_edge("island_x", "island_y", rel="HAS_CHILD")
+    graph.add_edge("island_y", "island_x", rel="HAS_CHILD")
+
+    failures = validate.check_structure(graph, SHAPE, ["a"], ["b"])
+    assert any("unreachable nodes" in f for f in failures)
+    assert any("island_x" in f for f in failures)
+
+
+# --------------------------------------------------------------------------
+# collapse_branches
+# --------------------------------------------------------------------------
+
+def test_collapse_resolves_step_branch_step_chain():
     graph = nx.DiGraph()
     graph.add_node("a", **_task())
     graph.add_node("cn", **_criteria())
@@ -153,45 +236,61 @@ def test_collapse_criteria_resolves_task_criteria_task_chain():
     graph.add_edge("a", "cn", rel="CRITERIA_BRANCH", condition_key="k", condition_value="v")
     graph.add_edge("cn", "b", rel="HAS_CHILD")
 
-    collapsed = validate.collapse_criteria(graph)
+    collapsed = validate.collapse_branches(graph, SHAPE)
 
     assert set(collapsed.nodes) == {"a", "b"}
     assert collapsed["a"]["b"]["condition_key"] == "k"
     assert collapsed["a"]["b"]["condition_value"] == "v"
 
 
-def test_collapse_criteria_keeps_direct_task_to_task_edge():
+def test_collapse_keeps_direct_step_to_step_edge():
     graph = nx.DiGraph()
     graph.add_node("a", **_task())
     graph.add_node("b", **_task())
     graph.add_edge("a", "b", rel="HAS_CHILD")
 
-    collapsed = validate.collapse_criteria(graph)
+    collapsed = validate.collapse_branches(graph, SHAPE)
 
     assert list(collapsed.edges) == [("a", "b")]
 
 
-def test_collapse_criteria_raises_on_criteria_node_without_exactly_one_child():
+def test_collapse_raises_on_branch_node_without_exactly_one_child():
     graph = nx.DiGraph()
     graph.add_node("a", **_task())
     graph.add_node("cn", **_criteria())
     graph.add_edge("a", "cn", rel="CRITERIA_BRANCH", condition_key="k", condition_value="v")
 
     with pytest.raises(ValueError, match="must have exactly one direct child"):
-        validate.collapse_criteria(graph)
+        validate.collapse_branches(graph, SHAPE)
+
+
+def test_collapse_raises_rather_than_silently_dropping_a_parallel_branch():
+    """Two branches from the same source resolving to the same step used to
+    overwrite each other, discarding the first condition (ISSUES.md #5)."""
+    graph = nx.DiGraph()
+    graph.add_node("a", **_task())
+    graph.add_node("cn1", **_criteria())
+    graph.add_node("cn2", **_criteria())
+    graph.add_node("b", **_task())
+    graph.add_edge("a", "cn1", rel="CRITERIA_BRANCH", condition_key="k", condition_value="v1")
+    graph.add_edge("a", "cn2", rel="CRITERIA_BRANCH", condition_key="k", condition_value="v2")
+    graph.add_edge("cn1", "b", rel="HAS_CHILD")
+    graph.add_edge("cn2", "b", rel="HAS_CHILD")
+
+    with pytest.raises(ValueError, match="both resolve to"):
+        validate.collapse_branches(graph, SHAPE)
 
 
 # --------------------------------------------------------------------------
-# normalize_graph: reconciling export-format differences only. Domain
-# classification (step vs. branch, which rel is conditional) is not its job
-# any more — see the schema.py tests below for that.
+# normalize_graph: export-format reconciliation only. Domain classification
+# (step vs. branch, which rel is conditional) is shape.yaml's job now.
 # --------------------------------------------------------------------------
 
 def _apoc_graph() -> nx.DiGraph:
     """A two-task graph shaped like a scoped apoc.export.graphml output:
-    relationship type under `label` rather than `rel`, exporter-assigned
-    node ids with the business id carried through as an ordinary `id`
-    property, and a bookkeeping edge `id` (every graphml edge has one)."""
+    relationship type under `label` rather than `rel`, exporter-assigned node
+    ids with the business id carried through as an ordinary `id` property,
+    and a bookkeeping edge `id` (every graphml edge has one)."""
     graph = nx.DiGraph()
     graph.add_node("n0", id="a", rationale="r", source_doc="d")
     graph.add_node("n1", id="b", rationale="r", source_doc="d")
@@ -214,7 +313,7 @@ def test_normalize_graph_relabels_nodes_to_business_id():
     assert set(normalized.nodes) == {"a", "b"}
 
 
-def test_normalize_graph_is_a_no_op_on_snapshot_pys_own_format():
+def test_normalize_graph_is_a_no_op_on_the_pipelines_own_format():
     graph = nx.DiGraph()
     graph.add_node("a", **_task())
     graph.add_node("b", **_task())
@@ -232,4 +331,31 @@ def test_normalize_graph_raises_on_colliding_business_ids():
     graph.add_node("n1", id="dup", rationale="r", source_doc="d")
 
     with pytest.raises(ValueError, match="duplicate business ids"):
+        validate.normalize_graph(graph)
+
+
+def test_normalize_graph_stringifies_integer_business_ids():
+    """An APOC export with useTypes:true can yield integer ids; a later
+    sorted() over mixed str/int node keys raised TypeError (ISSUES.md #9)."""
+    graph = nx.DiGraph()
+    graph.add_node("n0", id=42, rationale="r", source_doc="d")
+    graph.add_node("n1", id="b", rationale="r", source_doc="d")
+    graph.add_edge("n0", "n1", rel="HAS_CHILD")
+
+    normalized = validate.normalize_graph(graph)
+
+    assert set(normalized.nodes) == {"42", "b"}
+    assert sorted(normalized.nodes) == ["42", "b"]
+
+
+def test_normalize_graph_rejects_parallel_relationships():
+    """A MultiDiGraph silently misbehaves under this module's DiGraph
+    assumptions, so it is refused outright (ISSUES.md #6)."""
+    graph = nx.MultiDiGraph()
+    graph.add_node("a", **_task())
+    graph.add_node("b", **_task())
+    graph.add_edge("a", "b", rel="HAS_CHILD")
+    graph.add_edge("a", "b", rel="ALSO_LEADS_TO")
+
+    with pytest.raises(ValueError, match="parallel relationships"):
         validate.normalize_graph(graph)

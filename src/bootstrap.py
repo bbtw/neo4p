@@ -1,33 +1,33 @@
 """
 Bootstrap a draft expectations.yaml from a graph that has none.
 
-For the cold-start case: you have a graph.graphml but no expectations file to
-validate it against. This script derives everything derivable from the graph
-itself — entry points, terminals, the full path list, candidate rules mined
-from those paths, and the attributes every current step carries — and writes
-a draft expectations.yaml.
+For the cold-start case: you have a graph.graphml and a reviewed shape.yaml,
+but nothing to validate against yet. This derives everything derivable from
+the graph itself — entry points, terminals, the full path list, and candidate
+rules mined from those paths — and writes a draft baseline.
 
 The draft is DESCRIPTIVE, not normative: it approves whatever the graph
 currently does, bugs included. It catches nothing on day one. The one-time
 human review of the draft is the audit of the existing graph; committing the
 reviewed file is what turns it into a baseline that catches every change
 after it. Scenarios cannot be derived from topology and are left as an empty
-stub to hand-write. required_step_attrs is derived as a starting point (every
-attribute every current step happens to share) — trim it to what should
-actually be mandatory; a graph with no consistently-shared attribute yields
-an empty list, which enforces nothing until you fill it in by hand.
+stub to hand-write.
+
+Requires shape.yaml first — run propose_shape.py if you don't have one. The
+shape decides which nodes are steps and which are branch points, so it has
+to be settled before "what paths exist" means anything.
 
 Usage:
-    python bootstrap.py snapshots/sample/graph.graphml [out.yaml]
+    python bootstrap.py graph.graphml shape.yaml [-o expectations.yaml]
 
-Writes expectations.yaml next to the graphml unless an output path is given.
-Refuses to overwrite an existing file. Exit code 0 = draft written,
-1 = graph problems prevent bootstrapping (e.g. a cycle).
-
-Accepts a plain apoc.export.graphml.* export directly — no live Neo4j
-connection needed (see validate.normalize_graph for the details).
+Writes expectations.yaml next to the graphml unless -o is given, and refuses
+to overwrite an existing file. Exit code 0 = draft written and the graph is
+structurally clean, 1 = structural problems found (the draft is still
+written, so you can see what it would have approved), 2 = cannot bootstrap
+at all (cycle, bad shape file, path explosion).
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -35,21 +35,18 @@ import networkx as nx
 import yaml
 
 from mine_rules import mine_mutual_exclusion, mine_precedence
-from schema import infer_schema
+from shape import check_shape, load_shape
 from validate import (
     check_structure,
-    collapse_criteria,
+    collapse_branches,
     enumerate_paths,
     normalize_graph,
 )
 
-# Bookkeeping attributes that describe the graph export itself, not the
-# domain — never propose these as "required" step documentation.
-BOOKKEEPING_NODE_ATTRS = {"labels", "id"}
-
 HEADER = """\
 # GENERATED BASELINE — draft expectations.yaml bootstrapped from:
-#   {graphml}
+#   graph: {graphml}
+#   shape: {shape}
 #
 # Everything below describes what the graph CURRENTLY does, bugs included.
 # Validating the same graph against this file passes by construction.
@@ -65,72 +62,92 @@ HEADER = """\
 
 
 def main() -> None:
-    graphml_path = Path(sys.argv[1])
-    outpath = (
-        Path(sys.argv[2]) if len(sys.argv) > 2
-        else graphml_path.parent / "expectations.yaml"
+    parser = argparse.ArgumentParser(
+        description="Draft an expectations.yaml baseline from a graph.",
     )
+    parser.add_argument("graphml", type=Path)
+    parser.add_argument("shape", type=Path, help="reviewed shape.yaml for this graph")
+    parser.add_argument("-o", "--out", type=Path, default=None)
+    args = parser.parse_args()
+
+    outpath = args.out or args.graphml.parent / "expectations.yaml"
+    for path in (args.graphml, args.shape):
+        if not path.exists():
+            print(f"no such file: {path}", file=sys.stderr)
+            sys.exit(2)
     if outpath.exists():
-        sys.exit(f"refusing to overwrite existing {outpath} — move it first")
+        print(f"refusing to overwrite existing {outpath} — move it first", file=sys.stderr)
+        sys.exit(2)
 
-    graph = normalize_graph(nx.read_graphml(graphml_path))
+    try:
+        shape = load_shape(args.shape)
+        graph = normalize_graph(nx.read_graphml(args.graphml))
+    except ValueError as exc:
+        print(f"cannot bootstrap: {exc}", file=sys.stderr)
+        sys.exit(2)
 
-    # Derive what validate.py would otherwise be told.
+    print(shape.describe())
+    print()
+
+    # The shape has to fit before anything derived from it means anything.
+    shape_failures = check_shape(graph, shape)
+    if shape_failures:
+        print("cannot bootstrap: the graph does not match shape.yaml:", file=sys.stderr)
+        for line in shape_failures:
+            print(f"  - {line}", file=sys.stderr)
+        sys.exit(2)
+
     entries = sorted(n for n, d in graph.in_degree() if d == 0)
     terminals = sorted(n for n, d in graph.out_degree() if d == 0)
 
-    schema = infer_schema(graph)
-    step_attrs = [
-        set(data) - BOOKKEEPING_NODE_ATTRS
-        for node, data in graph.nodes(data=True)
-        if not schema.is_branch(node)
-    ]
-    required_step_attrs = sorted(set.intersection(*step_attrs)) if step_attrs else []
-
-    # Structural problems are real findings even with no expectations yet.
-    # Entry/terminal checks pass trivially (we just derived them); the rest —
-    # cycles, orphans, missing required attrs, bare branches — are not
-    # things a baseline should silently bless.
-    problems = check_structure(graph, entries, terminals, tuple(required_step_attrs))
-    for line in problems:
-        print(f"  ! {line}")
+    # Structural problems are real findings even with no baseline yet.
+    # Entry/terminal checks pass trivially (we just derived them); cycles,
+    # orphans and missing required attrs are not things a baseline should
+    # silently bless.
+    problems = check_structure(graph, shape, entries, terminals)
 
     if not nx.is_directed_acyclic_graph(graph):
-        sys.exit("cannot bootstrap: fix the cycle above and rerun")
+        print("cannot bootstrap: graph contains a cycle", file=sys.stderr)
+        for line in problems:
+            print(f"  - {line}", file=sys.stderr)
+        sys.exit(2)
 
     try:
-        collapsed = collapse_criteria(graph)
+        collapsed = collapse_branches(graph, shape)
         paths = enumerate_paths(collapsed, entries, terminals)
     except ValueError as exc:
-        sys.exit(f"cannot bootstrap: {exc}")
+        print(f"cannot bootstrap: {exc}", file=sys.stderr)
+        sys.exit(2)
 
-    path_entries = {p[0] for p in paths}
-    path_terminals = {p[-1] for p in paths}
-    rules = mine_precedence(paths, path_entries) + mine_mutual_exclusion(
-        paths, path_terminals
+    rules = mine_precedence(paths, {p[0] for p in paths}) + mine_mutual_exclusion(
+        paths, {p[-1] for p in paths}
     )
 
     draft = {
         "expected_entries": entries,
         "expected_terminals": terminals,
-        "required_step_attrs": required_step_attrs,
         "approved_paths": paths,
         "rules": rules,
         "scenarios": [],
     }
     outpath.write_text(
-        HEADER.format(graphml=graphml_path)
+        HEADER.format(graphml=args.graphml, shape=args.shape)
         + yaml.dump(draft, sort_keys=False, default_flow_style=False)
     )
 
     print(
         f"wrote draft baseline to {outpath}: {len(entries)} entries, "
-        f"{len(terminals)} terminals, {len(required_step_attrs)} required step "
-        f"attrs, {len(paths)} paths, {len(rules)} candidate rules, "
-        "0 scenarios (hand-write these)"
+        f"{len(terminals)} terminals, {len(paths)} paths, "
+        f"{len(rules)} candidate rules, 0 scenarios (hand-write these)"
     )
+
     if problems:
-        print(f"{len(problems)} structural problems above need fixing before review")
+        # Exit non-zero: a CI wrapper checking only the status code must not
+        # read "draft written" as "graph is clean".
+        print(f"\n{len(problems)} structural problem(s) to fix before review:")
+        for line in problems:
+            print(f"  - {line}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

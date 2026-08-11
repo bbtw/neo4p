@@ -1,0 +1,123 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd"><key id="d6" for="edge" attr.name="condition_value" attr.type="string"/>
+<key id="d5" for="edge" attr.name="condition_key" attr.type="string"/>
+<key id="d4" for="edge" attr.name="rel" attr.type="string"/>
+<key id="d3" for="node" attr.name="description" attr.type="string"/>
+<key id="d2" for="node" attr.name="source_doc" attr.type="string"/>
+<key id="d1" for="node" attr.name="rationale" attr.type="string"/>
+<key id="d0" for="node" attr.name="labels" attr.type="string"/>
+<graph edgedefault="directed"><node id="emergency_fund">
+  <data key="d0">Task</data>
+  <data key="d1">Liquidity before anything illiquid or locked up</data>
+  <data key="d2">policy_v4.2</data>
+</node>
+<node id="pay_down_high_interest">
+  <data key="d0">Task</data>
+  <data key="d1">Guaranteed return equal to the interest rate</data>
+  <data key="d2">policy_v4.2</data>
+</node>
+<node id="employer_match_401k">
+  <data key="d0">Task</data>
+  <data key="d1">Match is an immediate 100% return</data>
+  <data key="d2">policy_v4.2</data>
+</node>
+<node id="roth_ira">
+  <data key="d0">Task</data>
+  <data key="d1">Tax-free growth once the match is captured</data>
+  <data key="d2">policy_v4.2</data>
+</node>
+<node id="taxable_brokerage">
+  <data key="d0">Task</data>
+  <data key="d1">Overflow once tax-advantaged space is used</data>
+  <data key="d2">policy_v4.2</data>
+</node>
+<node id="estate_review">
+  <data key="d0">Task</data>
+  <data key="d1">Beneficiary and titling review</data>
+  <data key="d2">policy_v4.2</data>
+</node>
+<node id="emergency_fund__funded_with_debt">
+  <data key="d0">CriteriaNode</data>
+  <data key="d3">Does the client have an emergency fund on hand, but is still carrying high-interest debt?</data>
+</node>
+<node id="emergency_fund__funded_clear">
+  <data key="d0">CriteriaNode</data>
+  <data key="d3">Does the client have an emergency fund on hand and no high-interest debt?</data>
+</node>
+<node id="pay_down_high_interest__yes">
+  <data key="d0">CriteriaNode</data>
+  <data key="d3">Has the client's high-interest debt been paid off?</data>
+</node>
+<node id="employer_match_401k__roth">
+  <data key="d0">CriteriaNode</data>
+  <data key="d3">Is a Roth IRA the client's next investment vehicle?</data>
+</node>
+<node id="employer_match_401k__taxable">
+  <data key="d0">CriteriaNode</data>
+  <data key="d3">Is a taxable brokerage account the client's next investment vehicle?</data>
+</node>
+<node id="roth_ira__invest">
+  <data key="d0">CriteriaNode</data>
+  <data key="d3">After the Roth IRA, does the client want to keep investing?</data>
+</node>
+<node id="roth_ira__estate">
+  <data key="d0">CriteriaNode</data>
+  <data key="d3">After the Roth IRA, is the client ready for an estate review?</data>
+</node>
+<edge source="emergency_fund" target="emergency_fund__funded_with_debt">
+  <data key="d4">CRITERIA_BRANCH</data>
+  <data key="d5">fund_status</data>
+  <data key="d6">funded_with_debt</data>
+</edge>
+<edge source="emergency_fund" target="emergency_fund__funded_clear">
+  <data key="d4">CRITERIA_BRANCH</data>
+  <data key="d5">fund_status</data>
+  <data key="d6">funded_clear</data>
+</edge>
+<edge source="pay_down_high_interest" target="pay_down_high_interest__yes">
+  <data key="d4">CRITERIA_BRANCH</data>
+  <data key="d5">debt_cleared</data>
+  <data key="d6">yes</data>
+</edge>
+<edge source="employer_match_401k" target="employer_match_401k__roth">
+  <data key="d4">CRITERIA_BRANCH</data>
+  <data key="d5">next_vehicle</data>
+  <data key="d6">roth</data>
+</edge>
+<edge source="employer_match_401k" target="employer_match_401k__taxable">
+  <data key="d4">CRITERIA_BRANCH</data>
+  <data key="d5">next_vehicle</data>
+  <data key="d6">taxable</data>
+</edge>
+<edge source="roth_ira" target="roth_ira__invest">
+  <data key="d4">CRITERIA_BRANCH</data>
+  <data key="d5">after_roth</data>
+  <data key="d6">invest</data>
+</edge>
+<edge source="roth_ira" target="roth_ira__estate">
+  <data key="d4">CRITERIA_BRANCH</data>
+  <data key="d5">after_roth</data>
+  <data key="d6">estate</data>
+</edge>
+<edge source="emergency_fund__funded_with_debt" target="pay_down_high_interest">
+  <data key="d4">HAS_CHILD</data>
+</edge>
+<edge source="emergency_fund__funded_clear" target="employer_match_401k">
+  <data key="d4">HAS_CHILD</data>
+</edge>
+<edge source="pay_down_high_interest__yes" target="employer_match_401k">
+  <data key="d4">HAS_CHILD</data>
+</edge>
+<edge source="employer_match_401k__roth" target="roth_ira">
+  <data key="d4">HAS_CHILD</data>
+</edge>
+<edge source="employer_match_401k__taxable" target="taxable_brokerage">
+  <data key="d4">HAS_CHILD</data>
+</edge>
+<edge source="roth_ira__invest" target="taxable_brokerage">
+  <data key="d4">HAS_CHILD</data>
+</edge>
+<edge source="roth_ira__estate" target="estate_review">
+  <data key="d4">HAS_CHILD</data>
+</edge>
+</graph></graphml>
